@@ -1,7 +1,7 @@
 -- init.lua moreinfo
 
 moreinfo =
-    { _debug = true
+    { _debug = false
     , _experimental = false
     -- FIXME:
     , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
@@ -404,7 +404,7 @@ end
 local function died(dead_player, msg_part)
     local pos = vector.round(dead_player:get_pos())
     local msg = "You " .. (msg_part or "died") .. " at " .. minetest.pos_to_string(pos) .. "."
-    chat_send_player(get_player_name(dead_player), minetest.colorize("#E0D0A0", msg))
+    chat_send_player(get_player_name(dead_player), minetest.colorize(moreinfo.text_color, msg))
 end
 
 local function get_description(name)
