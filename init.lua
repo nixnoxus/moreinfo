@@ -1,9 +1,10 @@
 -- init.lua moreinfo
 
 moreinfo =
-    { _debug = false
+    { _debug = true
     , _experimental = false
-    , text_color = '#E0D0A0'
+    -- FIXME:
+    , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
     , game_info = nil
     }
 
@@ -19,7 +20,11 @@ local function debug(msg)
 end
 
 local function enabled(key)
-     return minetest.settings:get_bool(modname .. "." .. key) ~= false
+    if INIT == "client" then
+        return true
+    else
+        return minetest.settings:get_bool(modname .. "." .. key) ~= false
+    end
 end
 
 local function template_fill(fmt, hash, key_name_func)
@@ -46,21 +51,31 @@ local function template_fill(fmt, hash, key_name_func)
 end
 
 local function chat_send_player(player_name, msg)
-    -- chat_message_format = @timestamp @name: @message
-    local fmt = minetest.settings:get("chat_message_format")
-    if fmt then
-        msg = template_fill(fmt,
-            { timestamp = os.date("%X")
-            , name      = "[" .. modname .. "]"
-            , message   =  msg
-            }, function(k) return "@" .. k end)
-        debug("chat: " .. msg)
+    if INIT == "game" then
+        -- chat_message_format = @timestamp @name: @message
+        local fmt = minetest.settings:get("chat_message_format")
+        if fmt then
+            msg = template_fill(fmt,
+                { timestamp = os.date("%X")
+                , name      = "[" .. modname .. "]"
+                , message   =  msg
+                }, function(k) return "@" .. k end)
+            debug("chat: " .. msg)
+        end
     end
 
     if INIT == "client" then
         minetest.display_chat_message(msg)
     elseif INIT == "game" then
         minetest.chat_send_player(player_name, msg)
+    end
+end
+
+local function get_player_name(player)
+    if INIT == "client" then
+        return "client"
+    elseif INIT == "game" then
+        return player:get_player_name()
     end
 end
 
@@ -90,7 +105,7 @@ end
 local huds = {}
 
 local function hud_init()
-    return
+    local hud =
         { standing =
             { id = nil
             , def =
@@ -115,6 +130,13 @@ local function hud_init()
                 }
             }
         }
+
+    -- FIXME:
+    if INIT == "client" then
+        hud.standing.def.position.x = 1
+        hud.standing.def.alignment.x = -1
+    end
+    return hud
 end
 
 local function hud_show(h, player, text)
@@ -153,7 +175,11 @@ local function hud_update_global()
     local h = math.floor(t)
     local m = math.floor((t-h) * 60)
 
-    local players = minetest.get_connected_players()
+--    local player = minetest.localplayer
+--    debug("localplayer(hud):"..dump(player.get_player_name()))
+--    debug("localplayer(hud):"..dump(minetest.is_singleplayer))
+
+    local players = (INIT == "client") and {} or minetest.get_connected_players()
     local names = {}
     table.foreach(players, function(i,p)
         local player_name = p:get_player_name()
@@ -167,7 +193,7 @@ local function hud_update_global()
 end
 
 local function hud_update_player(player)
-    local player_name = player:get_player_name()
+    local player_name = get_player_name(player)
     local hud = huds[player_name]
 
     hud.last =
@@ -348,7 +374,7 @@ local function do_hud(player)
                             end
 
                             if not hud.last.ipos or not vector.equals(hud.last.ipos, hud.ipos) then
-                                chat_send_player(player:get_player_name(), "dump:" .. to_chat)
+                                chat_send_player(get_player_name(player), "dump:" .. to_chat)
                                 print(to_chat)
                             end
 
@@ -378,7 +404,7 @@ end
 local function died(dead_player, msg_part)
     local pos = vector.round(dead_player:get_pos())
     local msg = "You " .. (msg_part or "died") .. " at " .. minetest.pos_to_string(pos) .. "."
-    chat_send_player(dead_player:get_player_name(), minetest.colorize("#E0D0A0", msg))
+    chat_send_player(get_player_name(dead_player), minetest.colorize("#E0D0A0", msg))
 end
 
 local function get_description(name)
@@ -434,14 +460,10 @@ if INIT == "client" then
     debug(" csm restrictions" .. dump(minetest.get_csm_restrictions()))
 
     local player = minetest.localplayer
-    huds[player:get_player_name()] = hud_init()
+    debug("localplayer:"..dump(player))
+    huds[get_player_name(player)] = hud_init()
 
-    -- FIXME:?
-    minetest.register_on_connect(function()
-        minetest.after(0.1, function()
-            minetest.ui.minimap:show()
-        end)
-    end)
+    -- minetest.ui.minimap:show()
 
     minetest.register_on_death(function()
 	died(minetest.localplayer)
@@ -451,6 +473,7 @@ if INIT == "client" then
         timer = timer + dtime
         if timer < .3 then return end
         timer = 0
+    --debug("localplayer:"..dump(player))
         hud_update_global()
         do_hud(minetest.localplayer)
 
