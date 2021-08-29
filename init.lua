@@ -6,6 +6,7 @@ moreinfo =
     -- FIXME:
     , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
     , game_info = nil
+    , players_info = nil
     }
 
 local modname = minetest.get_current_modname()
@@ -129,6 +130,7 @@ local function hud_init()
                 , number = moreinfo.text_color:gsub('#', '0x')
                 }
             }
+        , wp_bed_id = nil
         }
 
     -- FIXME:
@@ -139,12 +141,17 @@ local function hud_init()
     return hud
 end
 
+local last_text = ""
 local function hud_show(h, player, text)
     h.def.text = text
     if not h.id then
         h.id = player:hud_add(h.def)
     else
         player:hud_change(h.id, 'text', text)
+    end
+    if text ~= last_text then
+--        debug("hud " .. get_player_name(player) .. " " .. string.gsub(text, "\n", ";"))
+        last_text = text
     end
 end
 
@@ -168,28 +175,57 @@ local function human_s(s)
     return str
 end
 
-local function hud_update_global()
+local function update_game_info()
     if not enabled("display_game_info") then return end
 
     local t = minetest.get_timeofday() * 24
     local h = math.floor(t)
     local m = math.floor((t-h) * 60)
-
---    local player = minetest.localplayer
---    debug("localplayer(hud):"..dump(player.get_player_name()))
---    debug("localplayer(hud):"..dump(minetest.is_singleplayer))
-
-    local players = (INIT == "client") and {} or minetest.get_connected_players()
-    local names = {}
-    table.foreach(players, function(i,p)
-        local player_name = p:get_player_name()
-        names[i] = player_name -- .. "[" .. minetest.get_player_information(player_name).avg_rtt .. "]"
-    end)
-
     moreinfo.game_info = "time: " .. string.format("%2d:%02d", h, m)
-        .. " players: " .. #players
-        .. " (" .. table.concat(names, ",") .. ")"
---        .. " uptime: " .. human_s(minetest.get_server_uptime())
+end
+
+local function update_players_info() -- ssm only
+    local players = minetest.get_connected_players()
+
+    moreinfo.game_info = moreinfo.game_info
+        .. "\nplayers: " .. #players
+
+    local names = {}
+
+    if enabled("display_players_info") then
+        table.foreach(players, function(i,p)
+            local fmt = "%f" --"%3.0f"
+            local f = 1 -- 1000
+            local player_name = p:get_player_name()
+            local player_info =  minetest.get_player_information(player_name)
+            if not player_info then
+                debug("oops: nix player_info:" .. dump(player_info))
+                return
+            end
+            names[i] = player_name
+            --[[
+                .. " | " .. string.format(fmt, player_info.min_rtt * f)
+                .. " "   .. string.format(fmt, player_info.avg_rtt * f)
+                .. " "   .. string.format(fmt, player_info.max_rtt * f)
+                .. " | " .. string.format(fmt, player_info.min_jitter * f)
+                .. " "   .. string.format(fmt, player_info.avg_jitter * f)
+                .. " "   .. string.format(fmt, player_info.max_jitter * f)
+                .. " |"
+            --]]
+                .. " " .. human_s(player_info.connection_uptime)
+        end)
+
+        moreinfo.game_info = moreinfo.game_info
+            .. "\n " .. table.concat(names, "\n ")
+    else
+        table.foreach(players, function(i,p)
+            local player_name = p:get_player_name()
+            names[i] = player_name
+        end)
+
+        moreinfo.game_info = moreinfo.game_info
+            .. " (" .. table.concat(names, ",") .. ")"
+    end
 end
 
 local function hud_update_player(player)
@@ -209,6 +245,9 @@ local function hud_update_player(player)
     -- first call
     if not hud.last.pos then
         hud.speed = 0
+        hud.speed_avg = 0
+        hud.last_stand_pos = hud.pos
+        hud.last_stand_utime = hud.utime
     else
         hud.udelta = (hud.utime - hud.last.utime)
         hud.speed = vector.distance(hud.pos, hud.last.pos) / ( hud.udelta / 1000000 )
@@ -216,12 +255,17 @@ local function hud_update_player(player)
 
     if hud.last.pos and hud.speed == 0 then
         hud.stand = (hud.stand or 0) + hud.udelta
+        hud.last_stand_pos = hud.pos
+        hud.last_stand_utime = hud.utime
     else
         hud.stand = 0
         hud.stand_loop = 0
+
         hud.rpos = vector.round(hud.pos)
         hud.mpos = vector.apply(hud.rpos, function(v) return math.floor(v / 16) end)
         hud.opos = vector.apply(hud.rpos, function(v) return v % 16 end)
+
+        hud.speed_avg = vector.distance(hud.pos, hud.last_stand_pos) / ( (hud.utime - hud.last_stand_utime) / 1000000 )
     end
 
     return hud
@@ -236,6 +280,7 @@ local function do_hud(player)
 
         if hud.speed ~= 0 or not moreinfo._experimental then
             msg = msg .. "\nspeed: " .. string.format("%.2f", hud.speed)
+            msg = msg .. " avg: " .. string.format("%.2f", hud.speed_avg)
         else
             msg = msg .. "\nstand: " .. math.floor(hud.stand / 1000000 + 0.5) .. " loop: " .. hud.stand_loop
         end
@@ -436,6 +481,36 @@ local function player_or_mob(obj)
     end
 end
 
+local function update_wp_bed(player)
+    debug("update_wp_bed ..")
+    local player_name = player:get_player_name()
+    local spawn = beds.spawn[player_name]
+
+    if spawn then
+        debug(" spawn " .. dump(spawn))
+        if not huds[player_name].wp_bed_id then
+            debug(" add wp")
+            huds[player_name].wp_bed_id = player:hud_add(
+                { hud_elem_type = "waypoint"
+                , name = "spawn (bed)"
+--                , text = ""
+                , precision = 1
+                , number = '0xa0a000'
+                , world_pos = spawn
+                }
+            )
+        else
+            player:hud_change(huds[player_name].wp_bed_id , 'world_pos', spawn)
+        end
+    else
+        if huds[player_name].wp_bed_id then
+            player:hud_remove(huds[player_name].wp_bed_id)
+            huds[player_name].wp_bed_id = nil
+        end
+        debug(" nix beds.spawn")
+    end
+end
+
 --[[
 
     minetest.register_on_punchnode(function(pos, node)
@@ -460,7 +535,7 @@ if INIT == "client" then
     debug(" csm restrictions" .. dump(minetest.get_csm_restrictions()))
 
     local player = minetest.localplayer
-    debug("localplayer:"..dump(player))
+    debug(" localplayer:"..dump(player))
     huds[get_player_name(player)] = hud_init()
 
     -- minetest.ui.minimap:show()
@@ -474,7 +549,7 @@ if INIT == "client" then
         if timer < .3 then return end
         timer = 0
     --debug("localplayer:"..dump(player))
-        hud_update_global()
+        update_game_info()
         do_hud(minetest.localplayer)
 
 --        print(dump(player:get_player_control_bits())) -- fail
@@ -484,6 +559,31 @@ if INIT == "client" then
     end)
 
 elseif INIT == "game" then
+
+    if minetest.get_modpath("beds") then
+        debug("beds.spawn:" .. dump(beds.spawn))
+
+        local orig_on_rightclick = beds.on_rightclick
+        beds.on_rightclick = function(pos, player)
+            local rc = orig_on_rightclick(pos, player)
+            update_wp_bed(player)
+            return rc
+        end
+
+        local orig_remove_spawns_at = beds.remove_spawns_at
+        beds.remove_spawns_at = function(pos)
+            local rc = orig_remove_spawns_at(pos)
+
+            local players = minetest.get_connected_players()
+            table.foreach(players, function(_,player)
+                update_wp_bed(player)
+            end)
+
+            return rc
+        end
+    else
+        update_wp_bed = function(...) return nil end
+    end
 
     if enabled("public_death_messages") then
         -- Note: chat message "You died." already removed from core
@@ -529,12 +629,17 @@ elseif INIT == "game" then
 --]]
 
     minetest.register_on_joinplayer(function(player)
-        huds[player:get_player_name()] = hud_init()
+        local player_name = player:get_player_name()
+        huds[player_name] = hud_init()
         local v = minetest.get_version()
-        chat_send_player(player:get_player_name()
+        chat_send_player(player_name
             , "Welcome to " .. v.project .. " " .. (v.hash or v.string)
             .. " uptime: " .. human_s(minetest.get_server_uptime())
+            .. " game day: " .. minetest.get_day_count()
             )
+        dump("server_status:".. dump(minetest.get_server_status()))
+
+        update_wp_bed(player)
 --        player:hud_set_flags({ minimap = true, minimap_radar =  true })
     end)
 
@@ -560,7 +665,8 @@ elseif INIT == "game" then
         timer = timer + dtime
         if timer < .3 then return end
         timer = 0
-        hud_update_global()
+        update_game_info()
+        update_players_info()
 
         for _, player in pairs(minetest.get_connected_players()) do
             do_hud(player)
