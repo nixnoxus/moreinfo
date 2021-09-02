@@ -17,6 +17,8 @@ if moreinfo._experimental then
     dofile(modpath .. "/facing.lua")
 end
 
+-- common functions
+
 local function debug(msg)
     if moreinfo._debug then print(msg) end
 end
@@ -108,6 +110,168 @@ local function try_keys(list, ...)
     return ret
 end
 
+local function human_s(s)
+    local units =    { "s", "m", "h", "d", "w" }
+    local divisors = {  60,  60,  24,  7,   0  }
+    local str = ""
+    local i = 1
+    s = math.floor(s)
+    while (i <= #units and (s ~= 0 or i == 1)) do
+        local v
+        if divisors[i] == 0 then
+            v = s
+        else
+            v = s % divisors[i]
+            s = (s - v) / divisors[i]
+        end
+        str = v .. units[i] .. str
+        i = i + 1
+    end
+    return str
+end
+
+local function get_meta(meta, key, default)
+    local json = meta and meta:get(modname .. ":" .. key)
+    return json and minetest.deserialize(json) or default
+end
+
+local function set_meta(meta, key, value)
+    local rc = meta and meta:set_string(modname .. ":" .. key, minetest.serialize(value))
+end
+
+-- way points (csm & ssm)
+
+local wps = {}
+
+local function init_wp(player)
+    local player_name = get_player_name(player)
+    local meta = (INIT == "game") and player:get_meta() or nil
+
+    wps[player_name] =
+        { bone_next = get_meta(meta, "bone_next", 1)
+        , bones_pos = get_meta(meta, "bones_pos", {})
+        , bones_hid = {}
+        , bed_hid = nil
+        }
+    debug("init wp_bones next: " .. wps[player_name].bone_next)
+end
+
+-- way point bed (ssm only)
+
+local function update_wp_bed(player)
+    debug("update_wp_bed ..")
+    local player_name = player:get_player_name()
+    local spawn = beds.spawn[player_name]
+
+    if spawn then
+        debug(" spawn " .. dump(spawn))
+        if not wps[player_name].bed_hid then
+            debug(" add wp bed")
+            wps[player_name].bed_hid = player:hud_add(
+                { hud_elem_type = "waypoint"
+                , name = "spawn (bed)"
+--                , text = ""
+                , precision = 1
+                , number = '0xa0a000'
+                , world_pos = spawn
+                }
+            )
+        else
+            player:hud_change(wps[player_name].bed_hid , 'world_pos', spawn)
+        end
+    else
+        if wps[player_name].bed_hid then
+            player:hud_remove(wps[player_name].bed_hid)
+            wps[player_name].bed_hid = nil
+        end
+        debug(" nix beds.spawn")
+    end
+end
+
+-- way points bones (csm & ssm)
+
+local function update_wp_bones(player, player_name)
+    local max = #wps[player_name].bones_pos
+    local suffix = (INIT == "client") and "?" or ""
+
+    for i =1, max do
+        if wps[player_name].bones_hid[i] then
+            player:hud_remove(wps[player_name].bones_hid[i])
+        end
+
+        wps[player_name].bones_hid[i] = player:hud_add(
+            { hud_elem_type = "waypoint"
+            , name = "bones[" .. i .. "/" .. max .. "]" .. suffix
+            , precision = 1
+            , number = moreinfo.text_color:gsub('#', '0x')
+            , world_pos = wps[player_name].bones_pos[i]
+            }
+        )
+    end
+
+    if (INIT == "client") then return end
+    local meta = player:get_meta() or nil
+    set_meta(meta, "bones_pos", wps[player_name].bones_pos)
+    set_meta(meta, "bone_next", wps[player_name].bone_next)
+end
+
+local function check_wp_bones(player, player_name)
+    debug("checked wp_bones"
+        .. " count:" .. #wps[player_name].bones_pos
+        .. " next: " .. wps[player_name].bone_next
+        )
+    local i = 1
+    while (i <= #wps[player_name].bones_pos) do
+        local pos = wps[player_name].bones_pos[i]
+        local name = pos and minetest.get_node(pos).name
+        debug(" check bones " .. i .. " " .. vector2str(pos) .. " " .. (name or "-"))
+        if not pos or (name ~= "bones:bones" and name ~= "ignore") then
+            debug(" remove bones " .. i)
+            if wps[player_name].bones_hid[i] then
+                player:hud_remove(wps[player_name].bones_hid[i])
+            end
+            table.remove(wps[player_name].bones_pos, i)
+            table.remove(wps[player_name].bones_hid, i)
+            if wps[player_name].bone_next > i then
+                wps[player_name].bone_next = wps[player_name].bone_next -1
+            end
+        else
+            i = i +1
+        end
+    end
+    debug(" checked wp_bones"
+        .. " count:" .. #wps[player_name].bones_pos
+        .. " next: " .. wps[player_name].bone_next
+        )
+end
+
+local function add_wp_bones(player_name, pos)
+    if INIT == "game" then
+        if minetest.is_creative_enabled(player_name) then
+            oops("no bones (creative)")
+            return
+        end
+        local node = minetest.get_node(pos)
+        if node.name ~= "bones:bones" then
+            oops("no bones found")
+            return
+        end
+    else
+        pos.y = pos.y + 1 -- FIXME: ssm vs. csm
+    end
+
+    local i = ((wps[player_name].bone_next -1) % moreinfo.bones_limit) +1
+    if i > #wps[player_name].bones_pos +1 then
+        i = #wps[player_name].bones_pos +1
+    end
+
+    debug("add bones " .. i);
+    wps[player_name].bones_pos[i] = pos
+    wps[player_name].bone_next = i + 1
+end
+
+-- hud
+
 local huds = {}
 local function hud_init()
     local hud =
@@ -134,7 +298,6 @@ local function hud_init()
                 , number = moreinfo.text_color:gsub('#', '0x')
                 }
             }
-        , wp_bed_id = nil
         }
 
     -- FIXME: ssm vs. csm
@@ -157,50 +320,6 @@ local function hud_show(h, player, text)
 --        debug("hud " .. get_player_name(player) .. " " .. string.gsub(text, "\n", ";"))
         last_text = text
     end
-end
-
-local function human_s(s)
-    local units =    { "s", "m", "h", "d", "w" }
-    local divisors = {  60,  60,  24,  7,   0  }
-    local str = ""
-    local i = 1
-    s = math.floor(s)
-    while (i <= #units and (s ~= 0 or i == 1)) do
-        local v
-        if divisors[i] == 0 then
-            v = s
-        else
-            v = s % divisors[i]
-            s = (s - v) / divisors[i]
-        end
-        str = v .. units[i] .. str
-        i = i + 1
-    end
-    return str
-end
-
-local wps = {}
-
-local function get_meta(meta, key, default)
-    local json = meta and meta:get(modname .. ":" .. key)
-    return json and minetest.deserialize(json) or default
-end
-
-local function set_meta(meta, key, value)
-    local rc = meta and meta:set_string(modname .. ":" .. key, minetest.serialize(value))
-end
-
-
-local function init_wp(player)
-    local player_name = get_player_name(player)
-    local meta = (INIT == "game") and player:get_meta() or nil
-
-    wps[player_name] =
-        { bone_next = get_meta(meta, "bone_next", 1)
-        , bones_pos = get_meta(meta, "bones_pos", {})
-        , bones_hid = {}
-        }
-    debug("init wp_bones next: " .. wps[player_name].bone_next)
 end
 
 local function update_game_info()
@@ -478,60 +597,7 @@ local function do_hud(player)
         end
 end
 
-local function update_wp_bones(player, player_name)
-    local max = #wps[player_name].bones_pos
-    local suffix = (INIT == "client") and "?" or ""
-
-    for i =1, max do
-        if wps[player_name].bones_hid[i] then
-            player:hud_remove(wps[player_name].bones_hid[i])
-        end
-
-        wps[player_name].bones_hid[i] = player:hud_add(
-            { hud_elem_type = "waypoint"
-            , name = "bones[" .. i .. "/" .. max .. "]" .. suffix
-            , precision = 1
-            , number = moreinfo.text_color:gsub('#', '0x')
-            , world_pos = wps[player_name].bones_pos[i]
-            }
-        )
-    end
-
-    if (INIT == "client") then return end
-    local meta = player:get_meta() or nil
-    set_meta(meta, "bones_pos", wps[player_name].bones_pos)
-    set_meta(meta, "bone_next", wps[player_name].bone_next)
-end
-
-local function check_wp_bones(player, player_name)
-    debug("checked wp_bones"
-        .. " count:" .. #wps[player_name].bones_pos
-        .. " next: " .. wps[player_name].bone_next
-        )
-    local i = 1
-    while (i <= #wps[player_name].bones_pos) do
-        local pos = wps[player_name].bones_pos[i]
-        local name = pos and minetest.get_node(pos).name
-        debug(" check bones " .. i .. " " .. vector2str(pos) .. " " .. (name or "-"))
-        if not pos or (name ~= "bones:bones" and name ~= "ignore") then
-            debug(" remove bones " .. i)
-            if wps[player_name].bones_hid[i] then
-                player:hud_remove(wps[player_name].bones_hid[i])
-            end
-            table.remove(wps[player_name].bones_pos, i)
-            table.remove(wps[player_name].bones_hid, i)
-            if wps[player_name].bone_next > i then
-                wps[player_name].bone_next = wps[player_name].bone_next -1
-            end
-        else
-            i = i +1
-        end
-    end
-    debug(" checked wp_bones"
-        .. " count:" .. #wps[player_name].bones_pos
-        .. " next: " .. wps[player_name].bone_next
-        )
-end
+-- misc functions
 
 local function died(dead_player, pos, msg_part)
     local msg = "You " .. (msg_part or "died")
@@ -539,29 +605,7 @@ local function died(dead_player, pos, msg_part)
     local player_name = get_player_name(dead_player)
     chat_send_player(player_name, minetest.colorize(moreinfo.text_color, msg))
 
-    if INIT == "game" then
-        if minetest.is_creative_enabled(player_name) then
-            oops("no bones (creative)")
-            return
-        end
-        local node = minetest.get_node(pos)
-        if node.name ~= "bones:bones" then
-            oops("no bones found")
-            return
-        end
-    else
-        pos.y = pos.y + 1 -- FIXME: ssm vs. csm
-    end
-
-    local i = ((wps[player_name].bone_next -1) % moreinfo.bones_limit) +1
-    if i > #wps[player_name].bones_pos +1 then
-        i = #wps[player_name].bones_pos +1
-    end
-
-    debug("add bones " .. i);
-    wps[player_name].bones_pos[i] = pos
-    wps[player_name].bone_next = i + 1
-
+    add_wp_bones(player_name, pos)
     update_wp_bones(dead_player, player_name)
 end
 
@@ -594,36 +638,6 @@ local function player_or_mob(obj)
     end
 end
 
-local function update_wp_bed(player)
-    debug("update_wp_bed ..")
-    local player_name = player:get_player_name()
-    local spawn = beds.spawn[player_name]
-
-    if spawn then
-        debug(" spawn " .. dump(spawn))
-        if not huds[player_name].wp_bed_id then
-            debug(" add wp bed")
-            huds[player_name].wp_bed_id = player:hud_add(
-                { hud_elem_type = "waypoint"
-                , name = "spawn (bed)"
---                , text = ""
-                , precision = 1
-                , number = '0xa0a000'
-                , world_pos = spawn
-                }
-            )
-        else
-            player:hud_change(huds[player_name].wp_bed_id , 'world_pos', spawn)
-        end
-    else
-        if huds[player_name].wp_bed_id then
-            player:hud_remove(huds[player_name].wp_bed_id)
-            huds[player_name].wp_bed_id = nil
-        end
-        debug(" nix beds.spawn")
-    end
-end
-
 --[[
 
     minetest.register_on_punchnode(function(pos, node)
@@ -641,7 +655,6 @@ end
 local timer = 0
 
 debug("init " .. modname .. " " .. INIT or '?')
-
 
 if INIT == "client" then
 
@@ -696,7 +709,7 @@ elseif INIT == "game" then
             return rc
         end
     else
-        update_wp_bed = function(...) return nil end
+        update_wp_bed = function(...) return end
     end
 
     if minetest.get_modpath("bones") then
@@ -715,6 +728,10 @@ elseif INIT == "game" then
                 update_wp_bones(p, n)
             end)
         end })
+    else
+        check_wp_bones = function(...) return end
+        add_wp_bones = function(...) return end
+        update_wp_bones = function(...) return end
     end
 
     minetest.register_on_dieplayer(function(dead_player, reason)
@@ -750,7 +767,6 @@ elseif INIT == "game" then
             end
         end
     end)
-
 
 --[[ minetest.conf: chat_message_format = @timestamp @name: @message
 
