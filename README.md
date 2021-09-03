@@ -31,6 +31,7 @@ The default values can be changed in `minetest.conf`.
 
 ```
 moreinfo.public_death_messages = true
+moreinfo.bones_limit = 3
 
 moreinfo.display_game_info = true
 moreinfo.display_players_info = true

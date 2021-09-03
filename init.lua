@@ -1,18 +1,18 @@
 -- init.lua moreinfo
 
+local modname = minetest.get_current_modname()
+local modpath = minetest.get_modpath(modname)
+
 moreinfo =
-    { version = "1.0.0"
+    { version = "1.1.0"
     , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
     , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
     , game_info = nil
     , players_info = nil
-    , bones_limit = 3 -- FIXME: setting
+    , bones_limit = (INIT == "game") and tonumber(minetest.settings:get(modname .. ":bones_limit")) or 3
     }
-
-local modname = minetest.get_current_modname()
-local modpath = minetest.get_modpath(modname)
 
 if moreinfo._experimental then
     dofile(modpath .. "/facing.lua")
@@ -876,6 +876,10 @@ elseif INIT == "game" then
             local text = modname .. " version " .. moreinfo.version
             local player = minetest.get_player_by_name(player_name)
             if not param or param == "" then
+                text = text
+                    .. " bones_limit: " .. moreinfo.bones_limit
+                    .. " public_death_messages: " .. (enabled("public_death_messages") and "true" or "false")
+
                 if player then
                     table.foreach(groups, function(_, group)
                         table.foreach(group.opts, function(_, opt)
@@ -884,6 +888,7 @@ elseif INIT == "game" then
                         end)
                     end)
                 end
+
                 return true, text
             elseif not player then
                 return false, "player not set"

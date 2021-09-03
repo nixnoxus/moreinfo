@@ -1,4 +1,5 @@
 moreinfo.public_death_messages (make deaths public)                                 bool true
+moreinfo.bones_limit           (limits the waypoints to the last N bones)           int  3
 
 moreinfo.display_game_info     (shows game infomation (game time, player names))    bool true
 moreinfo.display_players_info  (shows infomation about connected players)           bool true
