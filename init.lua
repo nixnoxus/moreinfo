@@ -1,7 +1,8 @@
 -- init.lua moreinfo
 
 moreinfo =
-    { _debug = 1
+    { version = "1.0.0"
+    , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
     , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
@@ -143,7 +144,7 @@ end
 
 local wps = {}
 
-local function init_wp(player)
+local function wp_init(player)
     local player_name = get_player_name(player)
     local meta = (INIT == "game") and player:get_meta() or nil
 
@@ -154,6 +155,36 @@ local function init_wp(player)
         , bed_hid = nil
         }
     debug("init wp_bones next: " .. wps[player_name].bone_next)
+end
+
+local function wp_add(player, name, world_pos)
+    return player:hud_add(
+        { hud_elem_type = "waypoint"
+        , name = name
+        , world_pos = world_pos
+        , text = "m"
+        , precision = 1
+        , number = ((INIT == "game") and "0xffcccc" or "0xaa0088")
+        })
+end
+
+local function wp_info(player, hid, to_pos)
+    local hud = hid and player:hud_get(hid)
+    if hud and to_pos then
+        local d = hud.world_pos and math.floor(vector.distance(hud.world_pos, to_pos)) or '?'
+        return hud.name .. ": " ..  d .. hud.text
+    end
+end
+
+local function wp_info_all(player, player_name, to_pos)
+    local i
+    local m = {}
+    for i = 0, #wps[player_name].bones_pos do
+        local hid = (i == 0) and wps[player_name].bed_hid or wps[player_name].bones_hid[i]
+        m[#m + 1] = wp_info(player, hid, to_pos)
+    end
+
+    return #m and table.concat(m, "\n") .. "\n"
 end
 
 -- way point bed (ssm only)
@@ -167,17 +198,9 @@ local function update_wp_bed(player)
         debug(" spawn " .. dump(spawn))
         if not wps[player_name].bed_hid then
             debug(" add wp bed")
-            wps[player_name].bed_hid = player:hud_add(
-                { hud_elem_type = "waypoint"
-                , name = "spawn (bed)"
---                , text = ""
-                , precision = 1
-                , number = '0xa0a000'
-                , world_pos = spawn
-                }
-            )
+            wps[player_name].bed_hid = wp_add(player, "spawn (bed)", spawn)
         else
-            player:hud_change(wps[player_name].bed_hid , 'world_pos', spawn)
+            player:hud_change(wps[player_name].bed_hid, 'world_pos', spawn)
         end
     else
         if wps[player_name].bed_hid then
@@ -199,14 +222,10 @@ local function update_wp_bones(player, player_name)
             player:hud_remove(wps[player_name].bones_hid[i])
         end
 
-        wps[player_name].bones_hid[i] = player:hud_add(
-            { hud_elem_type = "waypoint"
-            , name = "bones[" .. i .. "/" .. max .. "]" .. suffix
-            , precision = 1
-            , number = moreinfo.text_color:gsub('#', '0x')
-            , world_pos = wps[player_name].bones_pos[i]
-            }
-        )
+        wps[player_name].bones_hid[i] = wp_add(player
+            , "bones[" .. i .. "/" .. max .. "]" .. suffix
+            , wps[player_name].bones_pos[i]
+            )
     end
 
     if (INIT == "client") then return end
@@ -328,42 +347,47 @@ local function update_game_info()
     local t = minetest.get_timeofday() * 24
     local h = math.floor(t)
     local m = math.floor((t-h) * 60)
-    moreinfo.game_info = "time: " .. string.format("%2d:%02d", h, m)
+    moreinfo.game_info = "time: " .. string.format("%2d:%02d", h, m) .. "\n"
 end
 
 local function update_players_info() -- ssm only
     local players = minetest.get_connected_players()
 
-    moreinfo.game_info = moreinfo.game_info
-        .. "\nplayers: " .. #players
+    moreinfo.game_info = moreinfo.game_info .. "players: " .. #players
 
     local names = {}
 
     if enabled("display_players_info") then
         table.foreach(players, function(i,p)
-            local fmt = "%f" --"%3.0f"
-            local f = 1 -- 1000
+            local fmt = "%3.0f"
+            local f = 1000
             local player_name = p:get_player_name()
-            local player_info =  minetest.get_player_information(player_name)
+            local player_info = minetest.get_player_information(player_name)
             if not player_info then
                 oops("nix player_info:" .. dump(player_info))
                 return
             end
+
             names[i] = player_name
-            --[[
-                .. " | " .. string.format(fmt, player_info.min_rtt * f)
-                .. " "   .. string.format(fmt, player_info.avg_rtt * f)
-                .. " "   .. string.format(fmt, player_info.max_rtt * f)
-                .. " | " .. string.format(fmt, player_info.min_jitter * f)
-                .. " "   .. string.format(fmt, player_info.avg_jitter * f)
-                .. " "   .. string.format(fmt, player_info.max_jitter * f)
-                .. " |"
-            --]]
+                .. (minetest.is_creative_enabled(player_name) and "*" or "")
+
+            if false then
+                names[i] = names[i]
+                    .. " | " .. string.format(fmt, player_info.min_rtt * f)
+                    .. " "   .. string.format(fmt, player_info.avg_rtt * f)
+                    .. " "   .. string.format(fmt, player_info.max_rtt * f)
+                    .. " | " .. string.format(fmt, player_info.min_jitter * f)
+                    .. " "   .. string.format(fmt, player_info.avg_jitter * f)
+                    .. " "   .. string.format(fmt, player_info.max_jitter * f)
+                    .. " |"
+            end
+
+            names[i] = names[i]
                 .. " " .. human_s(player_info.connection_uptime)
         end)
 
         moreinfo.game_info = moreinfo.game_info
-            .. "\n " .. table.concat(names, "\n ")
+            .. "\n " .. table.concat(names, "\n ") .. "\n"
     else
         table.foreach(players, function(i,p)
             local player_name = p:get_player_name()
@@ -371,7 +395,7 @@ local function update_players_info() -- ssm only
         end)
 
         moreinfo.game_info = moreinfo.game_info
-            .. " (" .. table.concat(names, ",") .. ")"
+            .. " (" .. table.concat(names, ",") .. ")\n"
     end
 end
 
@@ -412,22 +436,31 @@ local function hud_update_player(player)
         hud.mpos = vector.apply(hud.rpos, function(v) return math.floor(v / 16) end)
         hud.opos = vector.apply(hud.rpos, function(v) return v % 16 end)
 
-        hud.speed_avg = vector.distance(hud.pos, hud.last_stand_pos) / ( (hud.utime - hud.last_stand_utime) / 1000000 )
+        if hud.last_stand_pos and hud.last_stand_utime < hud.utime then
+            hud.speed_avg = vector.distance(hud.pos, hud.last_stand_pos)
+                / ( (hud.utime - hud.last_stand_utime) / 1000000 )
+        end
     end
 
     return hud
 end
 
 local function do_hud(player)
-        local hud = hud_update_player(player)
+    local hud = hud_update_player(player)
+    local infos = {}
 
-	local msg = "pos: " .. vector2str(hud.rpos)
+    if enabled("display_waypoint_info") then
+        local player_name = get_player_name(player)
+        infos[#infos +1] = wp_info_all(player, player_name, hud.pos)
+    end
+
+    if enabled("display_position_info") then
+        local msg = "pos: " .. vector2str(hud.rpos)
             .. "\nmap block: " .. vector2str(hud.mpos)
             .. " offset: " .. vector2str(hud.opos)
 
         if hud.speed ~= 0 or not moreinfo._experimental then
-            msg = msg .. "\nspeed: " .. string.format("%.2f", hud.speed)
-            msg = msg .. " avg: " .. string.format("%.2f", hud.speed_avg)
+            msg = msg .. string.format("\nspeed: %.2f avg: %.2f m/s", hud.speed, hud.speed_avg)
         else
             msg = msg .. "\nstand: " .. math.floor(hud.stand / 1000000 + 0.5) .. " loop: " .. hud.stand_loop
         end
@@ -436,22 +469,29 @@ local function do_hud(player)
         if hud.light then
             local l1 = minetest.get_node_light(hud.pos, 0)
             local l2 = minetest.get_node_light(hud.pos, 0.5)
-            msg = msg .. "\nlight: " .. string.format("%d (%d..%d)", hud.light, l1, l2)
+            msg = msg .. string.format("\nlight: %d (%d..%d)", hud.light, l1, l2)
         end
 
-        if not enabled("display_position_info") then
-            msg = ""
-        elseif moreinfo.game_info then
-            msg = msg .. "\n"
+        local b = minetest.get_biome_data(hud.pos)
+        if b then
+            -- https://dev.minetest.net/minetest.register_biome
+            -- TODO: "Heat is not in degrees celcius, both values are abstract."
+            --msg = msg .. string.format("\nbiome: %s %d° %d%%"
+            msg = msg .. string.format("\nbiome: %s T: %i H: %i"
+                , b.biome and minetest.get_biome_name(b.biome) or "?"
+                , b.heat
+                , b.humidity
+                )
         end
 
-        local player_name = get_player_name(player)
-        local max = #wps[player_name].bones_pos
-        msg = msg .. "bones: " .. max .. "\n"
+        infos[#infos +1] = msg .. "\n"
+    end
 
-        hud_show(hud.standing, player, msg .. (moreinfo.game_info or ""))
+    infos[#infos +1] = moreinfo.game_info
 
-        if not moreinfo._experimental then return end
+    hud_show(hud.standing, player, string.gsub(table.concat(infos, "\n"),"\n+$", ""))
+
+    if not moreinfo._experimental then return end
 
         if hud.speed ~= 0 then
             if hud.last.speed ~= 0 then hud_show(hud.looking, player, "") end
@@ -660,10 +700,13 @@ if INIT == "client" then
 
     debug(" csm restrictions" .. dump(minetest.get_csm_restrictions()))
 
+    minetest.get_biome_data = function(...) return end
+    --minetest.get_biome_name = function(...) return end
+
     local player = minetest.localplayer
     debug(" localplayer:"..dump(player))
     huds[get_player_name(player)] = hud_init()
-    init_wp(player)
+    wp_init(player)
     -- minetest.ui.minimap:show()
 
     minetest.register_on_death(function()
@@ -789,7 +832,7 @@ elseif INIT == "game" then
             )
         dump("server_status:".. dump(minetest.get_server_status()))
 
-        init_wp(player)
+        wp_init(player)
         check_wp_bones(player, player_name)
         update_wp_bones(player, player_name)
         update_wp_bed(player)
@@ -800,20 +843,14 @@ elseif INIT == "game" then
         huds[player:get_player_name()] = nil
     end)
 
---[[
-    minetest.register_chatcommand("test", {
+    minetest.register_chatcommand(modname, {
         params = nil,
-        description = "test ..",
+        description = "shows version of " .. modname,
         func = function()
-            local camera = minetest.camera
-            points["test"] = {
-                pos = camera:get_pos(),
-                dir = camera:get_look_dir()
-            }
-            return true, "so"
+            return true, modname .. " version " .. moreinfo.version
         end,
     })
---]]
+
     minetest.register_globalstep(function(dtime)
         timer = timer + dtime
         if timer < .3 then return end
