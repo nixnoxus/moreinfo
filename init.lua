@@ -11,6 +11,7 @@ moreinfo =
     , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
     , game_info = nil
     , players_info = nil
+    , players_long_info = nil -- FIXME: testing ...
     , bones_limit = (INIT == "game") and tonumber(minetest.settings:get(modname .. ":bones_limit")) or 3
     }
 
@@ -220,6 +221,7 @@ end
 -- way points bones (csm & ssm)
 
 local function update_wp_bones(player, player_name)
+    player_name = player_name or player:get_player_name()
     local max = #wps[player_name].bones_pos
     local suffix = (INIT == "client") and "?" or ""
 
@@ -358,9 +360,10 @@ end
 local function update_players_info() -- ssm only
     local players = minetest.get_connected_players()
 
-    local names = {}
+    moreinfo.players_info = "players: " .. #players .. "\n"
+    moreinfo.players_long_info = moreinfo.players_info
 
-    table.foreach(players, function(i,p)
+    table.foreach(players, function(_, p)
         local fmt = "%3.0f"
         local f = 1000
         local player_name = p:get_player_name()
@@ -369,36 +372,21 @@ local function update_players_info() -- ssm only
             oops("nix player_info:" .. dump(player_info))
             return
         end
+        local cols =
+            { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
+            , " | " .. string.format(fmt, player_info.min_rtt * f)
+             .. " " .. string.format(fmt, player_info.avg_rtt * f)
+             .. " " .. string.format(fmt, player_info.max_rtt * f)
+             .. " | " .. string.format(fmt, player_info.min_jitter * f)
+             .. " "  .. string.format(fmt, player_info.avg_jitter * f)
+             .. " "  .. string.format(fmt, player_info.max_jitter * f)
+             .. " |"
+             , " " .. human_s(player_info.connection_uptime) .. "\n"
+             }
 
-        names[i] = player_name
-            .. (minetest.is_creative_enabled(player_name) and "*" or "")
-
-        if false then
-            names[i] = names[i]
-                .. " | " .. string.format(fmt, player_info.min_rtt * f)
-                .. " "   .. string.format(fmt, player_info.avg_rtt * f)
-                .. " "   .. string.format(fmt, player_info.max_rtt * f)
-                .. " | " .. string.format(fmt, player_info.min_jitter * f)
-                .. " "   .. string.format(fmt, player_info.avg_jitter * f)
-                .. " "   .. string.format(fmt, player_info.max_jitter * f)
-                .. " |"
-        end
-
-        names[i] = names[i]
-            .. " " .. human_s(player_info.connection_uptime)
+        moreinfo.players_info = moreinfo.players_info .. cols[1] .. cols[3]
+        moreinfo.players_long_info = moreinfo.players_long_info .. cols[1] .. cols[2].. cols[3]
     end)
-
-    moreinfo.players_info = "players: " .. #players
-        .. "\n " .. table.concat(names, "\n ") .. "\n"
-
---[[
-    table.foreach(players, function(i,p)
-        local player_name = p:get_player_name()
-        names[i] = player_name
-    end)
-
-    moreinfo.game_info = moreinfo.game_info .. " (" .. table.concat(names, ",") .. ")\n"
---]]
 end
 
 local function hud_update_player(player)
@@ -489,13 +477,9 @@ local function do_hud(player)
         infos[#infos +1] = msg .. "\n"
     end
 
-    if enabled("display_game_info", player) then
-        infos[#infos +1] = moreinfo.game_info
-    end
-
-    if enabled("display_players_info", player) then
-        infos[#infos +1] = moreinfo.players_info
-    end
+    table.foreach({ "game_info", "players_info", "players_long_info" }, function(_, opt)
+        infos[#infos +1] = enabled("display_" .. opt, player) and moreinfo[opt] or nil
+    end)
 
     hud_show(hud.standing, player, string.gsub(table.concat(infos, "\n"),"\n+$", ""))
 
@@ -854,7 +838,7 @@ elseif INIT == "game" then
     local o_func = { bed = update_wp_bed, bones = update_wp_bones }
     local groups =
         {   { prefix = "display_"
-            , opts = { "waypoint", "position", "game", "players" }
+            , opts = { "waypoint", "position", "game", "players", "players_long" }
             , suffix = "_info"
             }
         ,   { prefix = "waypoint_", opts = {}, suffix = "" }
@@ -863,6 +847,32 @@ elseif INIT == "game" then
     local g = #groups
     for k, _ in pairs(o_func) do
         groups[g].opts[#groups[g].opts +1] = k
+    end
+
+    local function config_set(player, group, opt, val)
+        for _, v in ipairs(group.opts) do
+            if opt == v then
+                local key = modname .. ":" .. group.prefix .. opt .. group.suffix
+                player:get_meta():set_int(key, val)
+                if o_func[opt] then
+                    o_func[opt](player)
+                end
+                return key .. " " .. ((val == 1) and "enabled" or "disabled")
+            end
+        end
+    end
+
+    -- option 'players' excludes 'players_long' and vice versa
+    o_func.players_long = function(player)
+        if enabled(groups[1].prefix .. "players_long" .. groups[1].suffix, player) then
+            config_set(player, groups[1], "players", 0)
+        end
+    end
+
+    o_func.players = function(player)
+        if enabled(groups[1].prefix .. "players" .. groups[1].suffix, player) then
+            config_set(player, groups[1], "players_long", 0)
+        end
     end
 
     minetest.register_chatcommand(modname, {
@@ -875,6 +885,7 @@ elseif INIT == "game" then
         func = function(player_name, param)
             local text = modname .. " version " .. moreinfo.version
             local player = minetest.get_player_by_name(player_name)
+
             if not param or param == "" then
                 text = text
                     .. " bones_limit: " .. moreinfo.bones_limit
@@ -893,35 +904,20 @@ elseif INIT == "game" then
             elseif not player then
                 return false, "player not set"
             else
-                local val = ((string.sub(param, 1, 1) == "+") and 1)
-                        or  ((string.sub(param, 1, 1) == "-") and 0)
-                        or nil
-                local opt = string.sub(param, 2)
-
-                local try_set = function(group, opt)
-                    for _, v in ipairs(group.opts) do
-                        if opt == v then
-                            local key = modname .. ":" .. group.prefix .. opt .. group.suffix
-                            player:get_meta():set_int(key, val)
-                            if o_func[opt] then
-                                o_func[opt](player, player_name)
-                            end
-                            return key .. " " .. ((val == 1) and "enabled" or "disabled")
-                        end
-                    end
-                end
+                local first, opt = string.sub(param, 1, 1), string.sub(param, 2)
+                local val = ((first == "+") and 1) or ((first == "-") and 0) or nil
 
                 if val ~= nil and opt == "any" then
                     local texts = {}
                     table.foreach(groups, function(_, group)
                         table.foreach(group.opts, function(_, opt)
-                            texts[#texts +1] = try_set(group, opt)
+                            texts[#texts +1] = config_set(player, group, opt, val)
                         end)
                     end)
                     return true, table.concat(texts, "\n")
                 elseif val ~= nil and opt ~= nil then
                     text = table.foreach(groups, function(_, group)
-                        return try_set(group, opt)
+                        return config_set(player, group, opt, val)
                     end)
                     return (text ~= nil), text or "command error"
                 end
