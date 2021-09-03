@@ -8,7 +8,7 @@ moreinfo =
     , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
-    , text_color = ((INIT == "client") and '#8080E0' or'#E0D0A0')
+    , text_color = ((INIT == "client") and '#8080E0' or'#E0E080')
     , game_info = nil
     , players_info = nil
     , players_long_info = nil -- FIXME: testing ...
@@ -37,6 +37,8 @@ local function enabled(key, player)
         local key = modname .. ":" .. key
         if meta and meta:contains(key) then
             return meta:get_int(key) == 1
+        elseif key == "moreinfo:display_players_long_info" then -- not enabled by default
+            return false
         else
             return minetest.settings:get_bool(key) ~= false
         end
@@ -171,7 +173,7 @@ local function wp_add(player, name, world_pos)
         , world_pos = world_pos
         , text = "m"
         , precision = 1
-        , number = ((INIT == "game") and "0xffcccc" or "0xaa0088")
+        , number = ((INIT == "client") and "0xffffff" or "0xE080E0")
         })
 end
 
@@ -477,7 +479,7 @@ local function do_hud(player)
         infos[#infos +1] = msg .. "\n"
     end
 
-    table.foreach({ "game_info", "players_info", "players_long_info" }, function(_, opt)
+    table.foreach({ "game_info", "players_long_info", "players_info" }, function(_, opt)
         infos[#infos +1] = enabled("display_" .. opt, player) and moreinfo[opt] or nil
     end)
 
@@ -838,7 +840,7 @@ elseif INIT == "game" then
     local o_func = { bed = update_wp_bed, bones = update_wp_bones }
     local groups =
         {   { prefix = "display_"
-            , opts = { "waypoint", "position", "game", "players", "players_long" }
+            , opts = { "waypoint", "position", "game", "players_long", "players" }
             , suffix = "_info"
             }
         ,   { prefix = "waypoint_", opts = {}, suffix = "" }
