@@ -3,6 +3,10 @@
 local modname = minetest.get_current_modname()
 local modpath = minetest.get_modpath(modname)
 
+local function get_setting_int(key, default)
+    return (INIT == "game") and tonumber(minetest.settings:get(key)) or default
+end
+
 moreinfo =
     { version = "1.1.0"
     , _debug = false
@@ -12,7 +16,11 @@ moreinfo =
     , game_info = nil
     , players_info = nil
     , players_long_info = nil -- FIXME: testing ...
-    , bones_limit = (INIT == "game") and tonumber(minetest.settings:get(modname .. ":bones_limit")) or 3
+    , bones_limit = get_setting_int(modname .. ":bones_limit", 3)
+    -- see https://github.com/minetest/minetest_game/blob/5.4.1/mods/bones/init.lua#L28
+    , share_bones_time = get_setting_int("share_bones_time", 1200)
+    -- nil: resync tst, >0: override bones:bones timer
+    , bones_timer_interval = nil
     }
 
 if moreinfo._experimental then
@@ -104,7 +112,7 @@ end
 
 local function vector2strf(fmt, v)
     if not v then return "?,?,?" end
-    return string.format(fmt, v.x) .. "," .. string.format(fmt, v.y) .. "," .. string.format(fmt, v.z)
+    return fmt:format(v.x) .. "," .. fmt:format(v.y) .. "," .. fmt:format(v.z)
 end
 
 local function vector2str_1(v) return vector2strf("%.1f", v) end
@@ -120,12 +128,17 @@ local function try_keys(list, ...)
     return ret
 end
 
+local function time_in_seconds()
+    return math.floor(minetest.get_us_time() / 1000000)
+end
+
 local function human_s(s)
     local units =    { "s", "m", "h", "d", "w" }
     local divisors = {  60,  60,  24,  7,   0  }
     local str = ""
+    local sign = (s < 0) and "-" or ""
     local i = 1
-    s = math.floor(s)
+    s = math.abs(math.floor(s))
     while (i <= #units and (s ~= 0 or i == 1)) do
         local v
         if divisors[i] == 0 then
@@ -137,7 +150,33 @@ local function human_s(s)
         str = v .. units[i] .. str
         i = i + 1
     end
-    return str
+    return sign .. str
+end
+
+local function yaw_to(from_pos, to_pos)
+    if not from_pos or not to_pos then return end
+    local yaw = math.atan((to_pos.z - from_pos.z) / (to_pos.x - from_pos.x)) + math.pi/2
+    return (to_pos.x > from_pos.x) and yaw + math.pi or yaw
+end
+
+local function yaw_to_degree_delta(from_pos, to_pos, look_yaw, style)
+    local yaw = yaw_to(from_pos, to_pos) or 0
+    local r = 0
+    if yaw ~= nil and look_yaw ~= nil then
+        local d = look_yaw - yaw
+        local g = (d / math.pi * 180) % 360
+        r = (g < 180) and g or (g - 360)
+    end
+
+    if style == 1 then
+        local str = "-----+-----"
+--        local str = "54321+12345"
+        local c = math.floor((r + 180) / (360 / (str:len()-1)) + .5)
+        return r, str:sub(1, c) .. "|" .. str:sub(c + 2);
+    else
+        local c = math.abs(math.floor(r / 30 + .5))
+        return r, string.sub((r < 0) and "<<<<<<" or ">>>>>>", 1, c);
+    end
 end
 
 local function get_meta(meta, key, default)
@@ -159,7 +198,7 @@ local function wp_init(player)
 
     wps[player_name] =
         { bone_next = get_meta(meta, "bone_next", 1)
-        , bones_pos = get_meta(meta, "bones_pos", {})
+        , bones     = get_meta(meta, "bones", {})
         , bones_hid = {}
         , bed_hid = nil
         }
@@ -177,20 +216,36 @@ local function wp_add(player, name, world_pos)
         })
 end
 
-local function wp_info(player, hid, to_pos)
+local function wp_info(player, hid, to_pos, add_text)
     local hud = hid and player:hud_get(hid)
+    local style = 1
     if hud and to_pos then
         local d = hud.world_pos and math.floor(vector.distance(hud.world_pos, to_pos)) or '?'
-        return hud.name .. ": " ..  d .. hud.text
+        local text = hud.name .. ": " .. d .. hud.text .. (add_text or "")
+        if INIT == "client" then
+            return text
+        else
+            local y = player:get_look_horizontal()
+            local r, a = yaw_to_degree_delta(to_pos, hud.world_pos, y, style)
+            --text = text .. string.format(" %+d°", r)
+            if style == 1 then
+                return a .. " " .. text
+            else
+                return text .. " " .. a
+            end
+        end
     end
 end
 
 local function wp_info_all(player, player_name, to_pos)
     local i
     local m = {}
-    for i = 0, #wps[player_name].bones_pos do
+    local t = time_in_seconds()
+    for i = 0, #wps[player_name].bones do
         local hid = (i == 0) and wps[player_name].bed_hid or wps[player_name].bones_hid[i]
-        m[#m + 1] = wp_info(player, hid, to_pos)
+        local s = (i ~= 0) and (t - wps[player_name].bones[i].tst - moreinfo.share_bones_time)
+        local fmt = ((not moreinfo.bones_timer_interval) and " [%s]") or (moreinfo._debug and " {%s}")
+        m[#m + 1] = wp_info(player, hid, to_pos, (fmt and s and s < 0) and fmt:format(human_s(s)))
     end
 
     return #m and table.concat(m, "\n") .. "\n"
@@ -224,7 +279,7 @@ end
 
 local function update_wp_bones(player, player_name)
     player_name = player_name or player:get_player_name()
-    local max = #wps[player_name].bones_pos
+    local max = #wps[player_name].bones
     local suffix = (INIT == "client") and "?" or ""
 
     for i =1, max do
@@ -235,24 +290,26 @@ local function update_wp_bones(player, player_name)
         wps[player_name].bones_hid[i] =
             enabled("waypoint_bones", player) and wp_add(player
                 , "bones[" .. i .. "/" .. max .. "]" .. suffix
-                , wps[player_name].bones_pos[i]
+                , wps[player_name].bones[i].pos
                 )
     end
+end
 
+local function _save_wp_bones(player, player_name)
     if (INIT == "client") then return end
     local meta = player:get_meta() or nil
-    set_meta(meta, "bones_pos", wps[player_name].bones_pos)
+    set_meta(meta, "bones",     wps[player_name].bones)
     set_meta(meta, "bone_next", wps[player_name].bone_next)
 end
 
 local function check_wp_bones(player, player_name)
     debug("checked wp_bones"
-        .. " count:" .. #wps[player_name].bones_pos
+        .. " count:" .. #wps[player_name].bones
         .. " next: " .. wps[player_name].bone_next
         )
     local i = 1
-    while (i <= #wps[player_name].bones_pos) do
-        local pos = wps[player_name].bones_pos[i]
+    while (i <= #wps[player_name].bones) do
+        local pos = wps[player_name].bones[i].pos
         local name = pos and minetest.get_node(pos).name
         debug(" check bones " .. i .. " " .. vector2str(pos) .. " " .. (name or "-"))
         if not pos or (name ~= "bones:bones" and name ~= "ignore") then
@@ -260,7 +317,7 @@ local function check_wp_bones(player, player_name)
             if wps[player_name].bones_hid[i] then
                 player:hud_remove(wps[player_name].bones_hid[i])
             end
-            table.remove(wps[player_name].bones_pos, i)
+            table.remove(wps[player_name].bones, i)
             table.remove(wps[player_name].bones_hid, i)
             if wps[player_name].bone_next > i then
                 wps[player_name].bone_next = wps[player_name].bone_next -1
@@ -270,19 +327,32 @@ local function check_wp_bones(player, player_name)
         end
     end
     debug(" checked wp_bones"
-        .. " count:" .. #wps[player_name].bones_pos
+        .. " count:" .. #wps[player_name].bones
         .. " next: " .. wps[player_name].bone_next
         )
+    _save_wp_bones(player, player_name)
 end
 
-local function add_wp_bones(player_name, pos)
+local function next_wp_bones(player_name)
+    local c = #wps[player_name].bones
+    local i = ((wps[player_name].bone_next -1) % moreinfo.bones_limit) +1
+    return (c < moreinfo.bones_limit or i > c +1) and c +1 or i
+end
+
+local function add_wp_bones(player, player_name, pos)
     if INIT == "game" then
         if minetest.is_creative_enabled(player_name) then
             oops("no bones (creative)")
             return
         end
         local node = minetest.get_node(pos)
-        if node.name ~= "bones:bones" then
+        if node.name == "bones:bones" then
+            -- reduce interval from 10 to 1s
+            -- see: https://github.com/minetest/minetest_game/blob/5.4.1/mods/bones/init.lua#L287
+            if (moreinfo.bones_timer_interval or 0) > 0 then
+                minetest.get_node_timer(pos):start(moreinfo.bones_timer_interval)
+            end
+        else
             oops("no bones found")
             return
         end
@@ -290,14 +360,13 @@ local function add_wp_bones(player_name, pos)
         pos.y = pos.y + 1 -- FIXME: ssm vs. csm
     end
 
-    local i = ((wps[player_name].bone_next -1) % moreinfo.bones_limit) +1
-    if i > #wps[player_name].bones_pos +1 then
-        i = #wps[player_name].bones_pos +1
-    end
+    local i = next_wp_bones(player_name)
 
     debug("add bones " .. i);
-    wps[player_name].bones_pos[i] = pos
+    wps[player_name].bones[i] = { pos = pos, tst = time_in_seconds() }
     wps[player_name].bone_next = i + 1
+
+    _save_wp_bones(player, player_name)
 end
 
 -- hud
@@ -376,12 +445,13 @@ local function update_players_info() -- ssm only
         end
         local cols =
             { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
-            , " | " .. string.format(fmt, player_info.min_rtt * f)
-             .. " " .. string.format(fmt, player_info.avg_rtt * f)
-             .. " " .. string.format(fmt, player_info.max_rtt * f)
-             .. " | " .. string.format(fmt, player_info.min_jitter * f)
-             .. " "  .. string.format(fmt, player_info.avg_jitter * f)
-             .. " "  .. string.format(fmt, player_info.max_jitter * f)
+            -- ... attempt to perform arithmetic on field 'min_rtt' (a nil value)
+            , " | " .. fmt:format(player_info.min_rtt or 0 * f)
+             .. " " .. fmt:format(player_info.avg_rtt or 0 * f)
+             .. " " .. fmt:format(player_info.max_rtt or 0 * f)
+             .. " | " .. fmt:format(player_info.min_jitter or 0 * f)
+             .. " "   .. fmt:format(player_info.avg_jitter or 0 * f)
+             .. " "   .. fmt:format(player_info.max_jitter or 0 * f)
              .. " |"
              , " " .. human_s(player_info.connection_uptime) .. "\n"
              }
@@ -444,6 +514,7 @@ local function do_hud(player)
     if enabled("display_waypoint_info", player) then
         local player_name = get_player_name(player)
         infos[#infos +1] = wp_info_all(player, player_name, hud.pos)
+        infos[#infos +1] = moreinfo._debug and "{next_wp_bones: " .. next_wp_bones(player_name)  .. "}\n" or nil
     end
 
     if enabled("display_position_info", player) then
@@ -639,7 +710,7 @@ local function died(dead_player, pos, msg_part)
     local player_name = get_player_name(dead_player)
     chat_send_player(player_name, minetest.colorize(moreinfo.text_color, msg))
 
-    add_wp_bones(player_name, pos)
+    add_wp_bones(dead_player, player_name, pos)
     update_wp_bones(dead_player, player_name)
 end
 
@@ -752,19 +823,56 @@ elseif INIT == "game" then
     if minetest.get_modpath("bones") then
         local name = "bones:bones"
         local orig_on_punch = minetest.registered_nodes[name].on_punch
+        local orig_on_timer = minetest.registered_nodes[name].on_timer
 
-        minetest.override_item(name, {
-          on_punch = function(pos, node, player)
-            debug("running bones hook " .. minetest.get_node(pos).name )
-            orig_on_punch(pos, node, player)
+        minetest.override_item(name,
+            { on_punch = function(pos, node, player)
+                    orig_on_punch(pos, node, player)
 
-            local players = minetest.get_connected_players()
-            table.foreach(players, function(_,p)
-                local n = get_player_name(p)
-                check_wp_bones(p, n)
-                update_wp_bones(p, n)
-            end)
-        end })
+                    local players = minetest.get_connected_players()
+                    table.foreach(players, function(_,p)
+                        local n = get_player_name(p)
+                        check_wp_bones(p, n)
+                        update_wp_bones(p, n)
+                    end)
+                end
+            , on_timer = function(pos, elapsed)
+                    local rc = orig_on_timer(pos, elapsed)
+
+                    local time = minetest.get_meta(pos):get_int("time")
+                    debug("bones pos: " .. vector2str(pos) .. " timer: " .. dump(time))
+                    local players = minetest.get_connected_players()
+                    _ = table.foreach(players, function(_,p)
+                        local n = get_player_name(p)
+                        local i = #wps[n].bones
+                        -- 'pos' is rounded, but 'bones[i].pos' is not
+                        while i > 1 and vector.distance(pos, wps[n].bones[i].pos) > 1 do
+                            debug(" is not " .. i .. " at " .. vector2str(wps[n].bones[i].pos))
+                            i = i -1
+                        end
+                        if i and wps[n].bones_hid[i] and time then
+                            local countdown = time - moreinfo.share_bones_time
+                            local fmt = (moreinfo.bones_timer_interval and " (%s)")
+                                    or (moreinfo._debug and " {%s}")
+
+                            if fmt then
+                                p:hud_change(wps[n].bones_hid[i], "text"
+                                    , "m" .. (rc and fmt:format(human_s(countdown)) or "")
+                                    )
+                            end
+
+                            -- resync
+                            if not moreinfo.bones_timer_interval then
+                                wps[n].bones[i].tst = time_in_seconds() - (moreinfo.share_bones_time + countdown)
+                            end
+                            debug(" bones found")
+                            return true
+                        end
+                    end) or debug(" bones not found :(")
+
+                    return rc
+                end
+            })
     else
         check_wp_bones = function(...) return end
         add_wp_bones = function(...) return end
@@ -827,6 +935,7 @@ elseif INIT == "game" then
         dump("server_status:".. dump(minetest.get_server_status()))
 
         wp_init(player)
+        -- TODO: remove (or expire) tst from old bones
         check_wp_bones(player, player_name)
         update_wp_bones(player, player_name)
         update_wp_bed(player, player_name)
