@@ -12,7 +12,7 @@ moreinfo =
     , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
-    , text_color = ((INIT == "client") and '#8080E0' or'#E0E080')
+    , text_color = ((INIT == "client") and '#8080E0' or'#F0F080')
     , game_info = nil
     , players_info = nil
     , players_long_info = nil -- FIXME: testing ...
@@ -188,6 +188,122 @@ local function set_meta(meta, key, value)
     local rc = meta and meta:set_string(modname .. ":" .. key, minetest.serialize(value))
 end
 
+-- time data and times
+local times = { }
+
+local function times_update()
+    local utime = minetest.get_us_time()
+    local speed = get_setting_int("time_speed")
+    local gtime = minetest.get_timeofday()
+    local gdays = (INIT == "game") and minetest.get_day_count() or nil
+
+    -- FIXME:
+    --local gdays = nil
+
+    -- needed data to detect game day cycle (for csm)
+    if times.now then
+        times.last =
+            { gtime = times.now.gtime
+            , gdays = times.now.gdays
+            -- currently unused:
+            --, utime = times.now.utime
+            }
+    end
+
+    -- count game day cycles (for csm)
+    if not gdays then
+        if not times.last then
+            gdays = 1
+        else
+            gdays = times.last.gdays + ((times.last.gtime > gtime) and 1 or 0)
+        end
+    end
+
+    times.now =
+        { time  = utime / 1000000 -- time in seconds
+        , gtime = gtime
+        , gdays = gdays
+        , speed = speed
+        , step = (speed) and ((speed > 0) and (86400 / speed) or 0)
+        -- currently unused:
+        --, utime = utime
+        }
+
+    if not times.init --
+        or times.now.speed ~= times.init.speed -- time_speed changed
+        -- FIXME?: detect time_speed changes in csm
+        or (not times.now.step and times.now.time - times.init.time > 10)
+        then
+        debug("(re)init times")
+        times.init =
+            { speed = times.now.speed
+            , time =  times.now.time
+            , gtime = times.now.gtime
+            , gdays = times.now.gdays
+            -- currently unused:
+            --, utime = times.now.utime
+            }
+    elseif times.init then
+        local t = times.now.time  - times.init.time
+        local g = times.now.gdays - times.init.gdays + times.now.gtime - times.init.gtime
+        local step = (g ~= 0) and (t / g) or 0
+
+        times.real =
+            { step = step
+            , speed = (step ~= 0) and (86400 / step) or 0
+            }
+    end
+
+    -- see https://github.com/minetest/minetest_game/blob/5.4.1/mods/beds/functions.lua#L178
+    local f_morning = 0.23
+    -- see https://github.com/minetest/minetest_game/blob/5.4.1/mods/beds/functions.lua#L186
+    local f_evening = 0.805
+
+    times.is_day = f_morning <= gtime and gtime < f_evening
+
+    local step = times.now.step or (times.real and times.real.step) or 0
+    -- seconds since evening or morning
+    times.evening = ( gtime - f_evening + ((gtime > f_morning) and 0 or 1) ) * step
+    times.morning = ( gtime - f_morning - ((gtime > f_evening) and 1 or 0) ) * step
+end
+
+local function times_gtime()
+    local t = 24 * times.now.gtime
+    local h = math.floor(t)
+    local m = math.floor((t-h) * 60)
+    return ("%2d:%02d"):format(h, m)
+--    return string.format("%2d:%02d", h, m)
+end
+
+local function times_info()
+    local str = " day: " .. times.now.gdays .. "\n"
+
+    str = str
+        .. " evening: " .. human_s(times.evening) .. "\n"
+        .. " morning: " .. human_s(times.morning) .. "\n"
+
+    if times.now.speed and times.real then
+        str = str .. string.format(" speed: %s (%+.2f) step: %s (%+.2f) [%is]\n"
+            , times.now.speed, times.real.speed - times.now.speed
+            , times.now.step , times.real.step  - times.now.step
+            , times.now.time - times.init.time
+            )
+    elseif times.real then
+        str = str .. string.format(" speed: %.2f step: %.2f [%is]\n"
+            , times.real.speed
+            , times.real.step
+            , times.now.time - times.init.time
+            )
+    else
+        str = str .. string.format(" speed: %s step: %s\n"
+            , times.now.speed
+            , times.now.step
+            )
+    end
+
+    return str
+end
+
 -- way points (csm & ssm)
 
 local wps = {}
@@ -210,9 +326,9 @@ local function wp_add(player, name, world_pos)
         { hud_elem_type = "waypoint"
         , name = name
         , world_pos = world_pos
-        , text = "m"
+        , text = "m away"
         , precision = 1
-        , number = ((INIT == "client") and "0xffffff" or "0xE080E0")
+        , number = ((INIT == "client") and "0xffffff" or "0x80F0F0")
         })
 end
 
@@ -243,9 +359,15 @@ local function wp_info_all(player, player_name, to_pos)
     local t = time_in_seconds()
     for i = 0, #wps[player_name].bones do
         local hid = (i == 0) and wps[player_name].bed_hid or wps[player_name].bones_hid[i]
-        local s = (i ~= 0) and (t - wps[player_name].bones[i].tst - moreinfo.share_bones_time)
-        local fmt = ((not moreinfo.bones_timer_interval) and " [%s]") or (moreinfo._debug and " {%s}")
-        m[#m + 1] = wp_info(player, hid, to_pos, (fmt and s and s < 0) and fmt:format(human_s(s)))
+        if i == 0 then
+            local show = "evening"
+            local str = show .. (times.is_day and " in " or " since ") .. human_s(times[show])
+            m[#m + 1] = wp_info(player, hid, to_pos, " [" .. str .. "]")
+        else
+            local s = (t - wps[player_name].bones[i].tst - moreinfo.share_bones_time)
+            local fmt = ((not moreinfo.bones_timer_interval) and " [shared in %s]") or (moreinfo._debug and " {%s}")
+            m[#m + 1] = wp_info(player, hid, to_pos, (fmt and s and s < 0) and fmt:format(human_s(s)))
+        end
     end
 
     return #m and table.concat(m, "\n") .. "\n"
@@ -422,10 +544,17 @@ local function hud_show(h, player, text)
 end
 
 local function update_game_info()
-    local t = minetest.get_timeofday() * 24
-    local h = math.floor(t)
-    local m = math.floor((t-h) * 60)
-    moreinfo.game_info = "time: " .. string.format("%2d:%02d", h, m) .. "\n"
+    times_update()
+
+    local show = times.is_day and "evening" or "morning"
+    moreinfo.game_info = "time: "
+        .. times_gtime()
+        .. " " .. show .. " in " .. human_s(times[show])
+        .. "\n"
+
+    if moreinfo._debug then
+        moreinfo.game_info = moreinfo.game_info .. "{" .. times_info() .. "}"
+    end
 end
 
 local function update_players_info() -- ssm only
@@ -446,14 +575,14 @@ local function update_players_info() -- ssm only
         local cols =
             { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
             -- ... attempt to perform arithmetic on field 'min_rtt' (a nil value)
-            , " | " .. fmt:format(player_info.min_rtt or 0 * f)
-             .. " " .. fmt:format(player_info.avg_rtt or 0 * f)
-             .. " " .. fmt:format(player_info.max_rtt or 0 * f)
-             .. " | " .. fmt:format(player_info.min_jitter or 0 * f)
-             .. " "   .. fmt:format(player_info.avg_jitter or 0 * f)
-             .. " "   .. fmt:format(player_info.max_jitter or 0 * f)
+            , " | rtt "      .. fmt:format((player_info.min_rtt or 0) * f)
+             .. " "          .. fmt:format((player_info.avg_rtt or 0) * f)
+             .. " "          .. fmt:format((player_info.max_rtt or 0) * f)
+             .. " | jitter " .. fmt:format((player_info.min_jitter or 0) * f)
+             .. " "          .. fmt:format((player_info.avg_jitter or 0) * f)
+             .. " "          .. fmt:format((player_info.max_jitter or 0) * f)
              .. " |"
-             , " " .. human_s(player_info.connection_uptime) .. "\n"
+             , " connected since " .. human_s(player_info.connection_uptime) .. "\n"
              }
 
         moreinfo.players_info = moreinfo.players_info .. cols[1] .. cols[3]
@@ -708,7 +837,7 @@ local function died(dead_player, pos, msg_part)
     local msg = "You " .. (msg_part or "died")
         .. " at " .. minetest.pos_to_string(vector.round(pos)) .. "."
     local player_name = get_player_name(dead_player)
-    chat_send_player(player_name, minetest.colorize(moreinfo.text_color, msg))
+    chat_send_player(player_name, minetest.colorize("#F08080", msg))
 
     add_wp_bones(dead_player, player_name, pos)
     update_wp_bones(dead_player, player_name)
@@ -852,12 +981,12 @@ elseif INIT == "game" then
                         end
                         if i and wps[n].bones_hid[i] and time then
                             local countdown = time - moreinfo.share_bones_time
-                            local fmt = (moreinfo.bones_timer_interval and " (%s)")
+                            local fmt = (moreinfo.bones_timer_interval and " (shared in %s)")
                                     or (moreinfo._debug and " {%s}")
 
                             if fmt then
                                 p:hud_change(wps[n].bones_hid[i], "text"
-                                    , "m" .. (rc and fmt:format(human_s(countdown)) or "")
+                                    , "m away" .. (rc and fmt:format(human_s(countdown)) or "")
                                     )
                             end
 
