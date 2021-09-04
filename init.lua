@@ -464,7 +464,6 @@ end
 local function add_wp_bones(player, player_name, pos)
     if INIT == "game" then
         if minetest.is_creative_enabled(player_name) then
-            oops("no bones (creative)")
             return
         end
         local node = minetest.get_node(pos)
@@ -475,8 +474,7 @@ local function add_wp_bones(player, player_name, pos)
                 minetest.get_node_timer(pos):start(moreinfo.bones_timer_interval)
             end
         else
-            oops("no bones found")
-            return
+            return oops("no bones found")
         end
     else
         pos.y = pos.y + 1 -- FIXME: ssm vs. csm
@@ -569,8 +567,7 @@ local function update_players_info() -- ssm only
         local player_name = p:get_player_name()
         local player_info = minetest.get_player_information(player_name)
         if not player_info then
-            oops("nix player_info:" .. dump(player_info))
-            return
+            return oops("nix player_info:" .. dump(player_info))
         end
         local cols =
             { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
@@ -593,6 +590,7 @@ end
 local function hud_update_player(player)
     local player_name = get_player_name(player)
     local hud = huds[player_name]
+    if not hud then return oops("no hud in hud_update_player") end
 
     hud.last =
         { pos   = hud.pos
@@ -638,6 +636,7 @@ end
 
 local function do_hud(player)
     local hud = hud_update_player(player)
+    if not hud then return oops("no hud in do_hud") end
     local infos = {}
 
     if enabled("display_waypoint_info", player) then
