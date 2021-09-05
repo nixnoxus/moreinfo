@@ -15,9 +15,6 @@ moreinfo =
     , _experimental = false
     -- FIXME: ssm vs. csm
     , text_color = ((INIT == "client") and '#8080E0' or'#F0F080')
-    , game_info = nil
-    , players_info = nil
-    , players_long_info = nil -- FIXME: testing ...
     , bones_limit = get_setting_int(modname .. ":bones_limit", 3)
     -- see https://github.com/minetest/minetest_game/blob/5.4.1/mods/bones/init.lua#L28
     , share_bones_time = get_setting_int("share_bones_time", 1200)
@@ -39,9 +36,8 @@ local function oops(msg)
     print("[" .. modname .. "] oops: " .. msg)
 end
 
+local defaults = { display_players_long_info = false }
 local function enabled(key, player)
-    local defaults = { display_players_long_info = false }
-
     if INIT == "client" then
         if defaults[key] ~= nil then
             return defaults[key]
@@ -553,29 +549,11 @@ local function hud_show(h, player, text)
     end
 end
 
-local function update_game_info()
-    times_update()
-
-    moreinfo.game_info = times.is_day
-        and S("time: @1 evening in @2", times_gtime(), human_s(times.evening))
-        or  S("time: @1 morning in @2", times_gtime(), human_s(times.morning))
-        .. "\n"
-
-    if moreinfo._debug then
-        moreinfo.game_info = moreinfo.game_info .. "{" .. times_info() .. "}"
-    end
-end
-
+local player_infos = {}
 local function update_players_info() -- ssm only
     local players = minetest.get_connected_players()
 
-    moreinfo.players_info = S("players: @1", #players) .. "\n"
-    moreinfo.players_long_info = moreinfo.players_info
-
-    local e = enabled("enable_long_text") -- TODO: per player
-    local _rtt = e and "rtt @1 @2 @3"       or "@1 @2 @3"
-    local _jtr = e and "jitter @1 @2 @3"    or "@1 @2 @3"
-    local _con = e and "connected since @1" or "@1"
+    player_infos = {}
 
     table.foreach(players, function(_, p)
         local fmt = "%3.0f"
@@ -585,26 +563,58 @@ local function update_players_info() -- ssm only
         if not player_info then
             return oops("nix player_info:" .. dump(player_info))
         end
-        local cols =
-            { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
+        player_infos[#player_infos+1] =
+            { name = player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
             -- ... attempt to perform arithmetic on field 'min_rtt' (a nil value)
-            , " | "  .. S(_rtt
-                , fmt:format((player_info.min_rtt or 0) * f)
+            , rtt =
+                { fmt:format((player_info.min_rtt or 0) * f)
                 , fmt:format((player_info.avg_rtt or 0) * f)
                 , fmt:format((player_info.max_rtt or 0) * f)
-                )
-             .. " | " .. S(_jtr
-                , fmt:format((player_info.min_jitter or 0) * f)
+                }
+            , jitter =
+                { fmt:format((player_info.min_jitter or 0) * f)
                 , fmt:format((player_info.avg_jitter or 0) * f)
                 , fmt:format((player_info.max_jitter or 0) * f)
-                )
-             .. " |"
-             , " " .. S(_con, human_s(player_info.connection_uptime)) .. "\n"
-             }
+                }
+            , time = human_s(player_info.connection_uptime)
+            }
 
-        moreinfo.players_info = moreinfo.players_info .. cols[1] .. cols[3]
-        moreinfo.players_long_info = moreinfo.players_long_info .. cols[1] .. cols[2].. cols[3]
     end)
+end
+
+local function get_players_info(player, e, long) -- ssm only
+    local str = S("players: @1", #player_infos) .. "\n"
+
+    local _rtt = e and "rtt @1 @2 @3"       or "@1 @2 @3"
+    local _jtr = e and "jitter @1 @2 @3"    or "@1 @2 @3"
+    local _con = e and "connected since @1" or "@1"
+
+    table.foreach(player_infos, function(_, p)
+        str = str .. " "  .. p.name
+        if long then
+            str = str
+                .. " | " .. S(_rtt, p.rtt[1], p.rtt[2], p.rtt[3])
+                .. " | " .. S(_jtr, p.jitter[1], p.jitter[2], p.jitter[3])
+                .. " |"
+        end
+        str = str .. " " .. S(_con, p.time) .. "\n"
+    end)
+
+    return str
+end
+
+local function get_game_info(player, e)
+    local str = S("time: @1", times_gtime()) .. " " ..
+        ( times.is_day
+            and S(e and "evening in @1" or 'e: @1', human_s(times.evening))
+            or  S(e and "morning in @1" or 'm: @1', human_s(times.morning))
+        ) .. "\n"
+
+    if moreinfo._debug then
+        str = str .. "{" .. times_info() .. "}"
+    end
+
+    return str
 end
 
 local function hud_update_player(player)
@@ -654,6 +664,12 @@ local function hud_update_player(player)
     return hud
 end
 
+local get_funcs =
+    { players_info = get_players_info
+    , game_info    = get_game_info
+    , players_long_info = function(player, e) return get_players_info(player, e, true) end
+    }
+
 -- local function f2 = function(f) return ("%.2f"):format(f) end
 local function do_hud(player)
     local hud = hud_update_player(player)
@@ -666,14 +682,16 @@ local function do_hud(player)
         infos[#infos +1] = moreinfo._debug and "{next_wp_bones: " .. next_wp_bones(player_name)  .. "}\n" or nil
     end
 
+    local e = enabled("enable_long_text", player)
+
     if enabled("display_position_info", player) then
         local msg = S("pos: @1", vector2str(hud.rpos)) .. "\n"
             .. S("map block: @1 offset: @2", vector2str(hud.mpos), vector2str(hud.opos))
 
         if hud.speed ~= 0 or not moreinfo._experimental then
             msg = msg .. "\n" .. S("speed: @1 avg: @2 m/s"
-                , ("%.2f"):format(hud.speed)
-                , ("%.2f"):format(hud.speed_avg)
+                , ("%.1f"):format(hud.speed)
+                , ("%.1f"):format(hud.speed_avg)
                 )
         else
             msg = msg .. "\n" .. S("stand: @1 loop: @2"
@@ -682,14 +700,12 @@ local function do_hud(player)
                 )
         end
 
-        local e = enabled("enable_long_text", player)
-
         hud.light = minetest.get_node_light(hud.pos)
         if hud.light then
             local l1 = minetest.get_node_light(hud.pos, 0)
             local l2 = minetest.get_node_light(hud.pos, 0.5)
-            msg = msg .. "\n"
-                .. S(e and "light: @1 min: @2 max: @3" or "light: @1 (@2..@3)", hud.light, l1, l2)
+            msg = msg .. "\n" ..
+                S(e and "light: @1 min: @2 max: @3" or "light: @1 (@2..@3)", hud.light, l1, l2)
         end
 
         local b = minetest.get_biome_data(hud.pos)
@@ -697,19 +713,21 @@ local function do_hud(player)
             -- https://dev.minetest.net/minetest.register_biome
             -- TODO: "Heat is not in degrees celcius, both values are abstract."
             --msg = msg .. string.format("\nbiome: %s %d° %d%%"
-            msg = msg .. "\n"
+            msg = msg .. "\n" ..
                 S(e and "biome: @1 heat: @2 humidity: @3" or "biome: @1 T: @2 H: @3"
                 , b.biome and minetest.get_biome_name(b.biome) or "?"
-                , b.heat
-                , b.humidity
+                , ("%.1f"):format(b.heat)
+                , ("%.1f"):format(b.humidity)
                 )
         end
 
         infos[#infos +1] = msg .. "\n"
     end
 
-    table.foreach({ "game_info", "players_long_info", "players_info" }, function(_, opt)
-        infos[#infos +1] = enabled("display_" .. opt, player) and moreinfo[opt] or nil
+    table.foreach({ "game_info", "players_info", "players_long_info" }, function(_, opt)
+        if enabled("display_" .. opt, player) then
+            infos[#infos +1] = get_funcs[opt](player, e) or nil
+        end
     end)
 
     hud_show(hud.standing, player, string.gsub(table.concat(infos, "\n"),"\n+$", ""))
@@ -942,7 +960,7 @@ if INIT == "client" then
         if timer < .3 then return end
         timer = 0
     --debug("localplayer:"..dump(player))
-        update_game_info()
+        times_update()
         do_hud(minetest.localplayer)
 
 --        print(dump(player:get_player_control_bits())) -- fail
@@ -1210,7 +1228,7 @@ elseif INIT == "game" then
         timer = timer + dtime
         if timer < .3 then return end
         timer = 0
-        update_game_info()
+        times_update()
         update_players_info()
 
         for _, player in pairs(minetest.get_connected_players()) do
