@@ -7,8 +7,10 @@ local function get_setting_int(key, default)
     return (INIT == "game") and tonumber(minetest.settings:get(key)) or default
 end
 
+local S = minetest.get_translator(modname)
+
 moreinfo =
-    { version = "1.1.0"
+    { version = "1.2.0 devel"
     , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
@@ -38,17 +40,23 @@ local function oops(msg)
 end
 
 local function enabled(key, player)
+    local defaults = { display_players_long_info = false }
+
     if INIT == "client" then
-        return true
+        if defaults[key] ~= nil then
+            return defaults[key]
+        else
+            return true
+        end
     else
         local meta = player and player:get_meta() or nil
-        local key = modname .. ":" .. key
-        if meta and meta:contains(key) then
-            return meta:get_int(key) == 1
-        elseif key == "moreinfo:display_players_long_info" then -- not enabled by default
-            return false
+        local name = modname .. ":" .. key
+        if meta and meta:contains(name) then
+            return meta:get_int(name) == 1
+        elseif defaults[key] ~= nil then
+            return defaults[key]
         else
-            return minetest.settings:get_bool(key) ~= false
+            return minetest.settings:get_bool(name) ~= false
         end
     end
 end
@@ -276,30 +284,30 @@ local function times_gtime()
 end
 
 local function times_info()
-    local str = " day: " .. times.now.gdays .. "\n"
+    local str = " " .. S("day: @1", times.now.gdays) .. "\n"
 
+    local e = enabled("enable_long_text") -- TODO: per player
+    local _evening = e and "evening: @1" or "@1"
+    local _morning = e and "morning: @1" or "@1"
     str = str
-        .. " evening: " .. human_s(times.evening) .. "\n"
-        .. " morning: " .. human_s(times.morning) .. "\n"
+        .. " " .. S(_evening, human_s(times.evening)) .. "\n"
+        .. " " .. S(_morning, human_s(times.morning)) .. "\n"
 
+    local speed, step
     if times.now.speed and times.real then
-        str = str .. string.format(" speed: %s (%+.2f) step: %s (%+.2f) [%is]\n"
-            , times.now.speed, times.real.speed - times.now.speed
-            , times.now.step , times.real.step  - times.now.step
+        speed = ("%s (%+.2f)"):format(times.now.speed, times.real.speed - times.now.speed)
+        step  = ("%s (%+.2f) [%is]"):format(times.now.step
+            , times.real.step - times.now.step
             , times.now.time - times.init.time
             )
     elseif times.real then
-        str = str .. string.format(" speed: %.2f step: %.2f [%is]\n"
-            , times.real.speed
-            , times.real.step
-            , times.now.time - times.init.time
-            )
+        speed = ("%.2f"):format(times.real.speed)
+        step  = ("%.2f [%is]"):format( times.real.step, times.now.time - times.init.time)
     else
-        str = str .. string.format(" speed: %s step: %s\n"
-            , times.now.speed
-            , times.now.step
-            )
+        speed = times.now.speed
+        step  = times.now.step
     end
+    str = str .. " " .. S("speed: @1 step: @2", speed, step) .. "\n"
 
     return str
 end
@@ -326,7 +334,7 @@ local function wp_add(player, name, world_pos)
         { hud_elem_type = "waypoint"
         , name = name
         , world_pos = world_pos
-        , text = "m away"
+        , text = enabled("enable_long_text", player) and S("m away") or S("m")
         , precision = 1
         , number = ((INIT == "client") and "0xffffff" or "0x80F0F0")
         })
@@ -357,16 +365,20 @@ local function wp_info_all(player, player_name, to_pos)
     local i
     local m = {}
     local t = time_in_seconds()
+    local e = enabled("enable_long_text", player)
+    local _bed  = not e and "[@1]" or (times.is_day and "[evening in @1]" or "[evening since @1]")
+    local _bone = not e and "[@1]" or "[shared in @1]"
+
     for i = 0, #wps[player_name].bones do
         local hid = (i == 0) and wps[player_name].bed_hid or wps[player_name].bones_hid[i]
         if i == 0 then
-            local show = "evening"
-            local str = show .. (times.is_day and " in " or " since ") .. human_s(times[show])
-            m[#m + 1] = wp_info(player, hid, to_pos, " [" .. str .. "]")
+            m[#m + 1] = wp_info(player, hid, to_pos, " " .. S(_bed, human_s(times.evening)))
         else
             local s = (t - wps[player_name].bones[i].tst - moreinfo.share_bones_time)
-            local fmt = ((not moreinfo.bones_timer_interval) and " [shared in %s]") or (moreinfo._debug and " {%s}")
-            m[#m + 1] = wp_info(player, hid, to_pos, (fmt and s and s < 0) and fmt:format(human_s(s)))
+            local str = ((not moreinfo.bones_timer_interval) and S(_bone, human_s(s)))
+                or (moreinfo._debug and "{" .. human_s(s) .. "}")
+
+            m[#m + 1] = wp_info(player, hid, to_pos, (str and s and s < 0) and " " .. str)
         end
     end
 
@@ -375,14 +387,14 @@ end
 
 -- way point bed (ssm only)
 
-local function update_wp_bed(player, player_name)
+local function update_wp_bed(player, player_name, force_update)
     debug("update_wp_bed ..")
     player_name = player_name or player:get_player_name()
     local spawn = enabled("waypoint_bed", player) and beds.spawn[player_name]
 
     if spawn then
         debug(" spawn " .. dump(spawn))
-        if not wps[player_name].bed_hid then
+        if not wps[player_name].bed_hid or force_update then
             debug(" add wp bed")
             wps[player_name].bed_hid = wp_add(player, "spawn (bed)", spawn)
         else
@@ -544,10 +556,9 @@ end
 local function update_game_info()
     times_update()
 
-    local show = times.is_day and "evening" or "morning"
-    moreinfo.game_info = "time: "
-        .. times_gtime()
-        .. " " .. show .. " in " .. human_s(times[show])
+    moreinfo.game_info = times.is_day
+        and S("time: @1 evening in @2", times_gtime(), human_s(times.evening))
+        or  S("time: @1 morning in @2", times_gtime(), human_s(times.morning))
         .. "\n"
 
     if moreinfo._debug then
@@ -558,8 +569,13 @@ end
 local function update_players_info() -- ssm only
     local players = minetest.get_connected_players()
 
-    moreinfo.players_info = "players: " .. #players .. "\n"
+    moreinfo.players_info = S("players: @1", #players) .. "\n"
     moreinfo.players_long_info = moreinfo.players_info
+
+    local e = enabled("enable_long_text") -- TODO: per player
+    local _rtt = e and "rtt @1 @2 @3"       or "@1 @2 @3"
+    local _jtr = e and "jitter @1 @2 @3"    or "@1 @2 @3"
+    local _con = e and "connected since @1" or "@1"
 
     table.foreach(players, function(_, p)
         local fmt = "%3.0f"
@@ -572,14 +588,18 @@ local function update_players_info() -- ssm only
         local cols =
             { " " .. player_name .. (minetest.is_creative_enabled(player_name) and "*" or "")
             -- ... attempt to perform arithmetic on field 'min_rtt' (a nil value)
-            , " | rtt "      .. fmt:format((player_info.min_rtt or 0) * f)
-             .. " "          .. fmt:format((player_info.avg_rtt or 0) * f)
-             .. " "          .. fmt:format((player_info.max_rtt or 0) * f)
-             .. " | jitter " .. fmt:format((player_info.min_jitter or 0) * f)
-             .. " "          .. fmt:format((player_info.avg_jitter or 0) * f)
-             .. " "          .. fmt:format((player_info.max_jitter or 0) * f)
+            , " | "  .. S(_rtt
+                , fmt:format((player_info.min_rtt or 0) * f)
+                , fmt:format((player_info.avg_rtt or 0) * f)
+                , fmt:format((player_info.max_rtt or 0) * f)
+                )
+             .. " | " .. S(_jtr
+                , fmt:format((player_info.min_jitter or 0) * f)
+                , fmt:format((player_info.avg_jitter or 0) * f)
+                , fmt:format((player_info.max_jitter or 0) * f)
+                )
              .. " |"
-             , " connected since " .. human_s(player_info.connection_uptime) .. "\n"
+             , " " .. S(_con, human_s(player_info.connection_uptime)) .. "\n"
              }
 
         moreinfo.players_info = moreinfo.players_info .. cols[1] .. cols[3]
@@ -634,6 +654,7 @@ local function hud_update_player(player)
     return hud
 end
 
+-- local function f2 = function(f) return ("%.2f"):format(f) end
 local function do_hud(player)
     local hud = hud_update_player(player)
     if not hud then return oops("no hud in do_hud") end
@@ -646,21 +667,29 @@ local function do_hud(player)
     end
 
     if enabled("display_position_info", player) then
-        local msg = "pos: " .. vector2str(hud.rpos)
-            .. "\nmap block: " .. vector2str(hud.mpos)
-            .. " offset: " .. vector2str(hud.opos)
+        local msg = S("pos: @1", vector2str(hud.rpos)) .. "\n"
+            .. S("map block: @1 offset: @2", vector2str(hud.mpos), vector2str(hud.opos))
 
         if hud.speed ~= 0 or not moreinfo._experimental then
-            msg = msg .. string.format("\nspeed: %.2f avg: %.2f m/s", hud.speed, hud.speed_avg)
+            msg = msg .. "\n" .. S("speed: @1 avg: @2 m/s"
+                , ("%.2f"):format(hud.speed)
+                , ("%.2f"):format(hud.speed_avg)
+                )
         else
-            msg = msg .. "\nstand: " .. math.floor(hud.stand / 1000000 + 0.5) .. " loop: " .. hud.stand_loop
+            msg = msg .. "\n" .. S("stand: @1 loop: @2"
+                , math.floor(hud.stand / 1000000 + 0.5)
+                , hud.stand_loop
+                )
         end
+
+        local e = enabled("enable_long_text", player)
 
         hud.light = minetest.get_node_light(hud.pos)
         if hud.light then
             local l1 = minetest.get_node_light(hud.pos, 0)
             local l2 = minetest.get_node_light(hud.pos, 0.5)
-            msg = msg .. string.format("\nlight: %d (%d..%d)", hud.light, l1, l2)
+            msg = msg .. "\n"
+                .. S(e and "light: @1 min: @2 max: @3" or "light: @1 (@2..@3)", hud.light, l1, l2)
         end
 
         local b = minetest.get_biome_data(hud.pos)
@@ -668,7 +697,8 @@ local function do_hud(player)
             -- https://dev.minetest.net/minetest.register_biome
             -- TODO: "Heat is not in degrees celcius, both values are abstract."
             --msg = msg .. string.format("\nbiome: %s %d° %d%%"
-            msg = msg .. string.format("\nbiome: %s T: %i H: %i"
+            msg = msg .. "\n"
+                S(e and "biome: @1 heat: @2 humidity: @3" or "biome: @1 T: @2 H: @3"
                 , b.biome and minetest.get_biome_name(b.biome) or "?"
                 , b.heat
                 , b.humidity
@@ -980,14 +1010,17 @@ elseif INIT == "game" then
                         end
                         if i and wps[n].bones_hid[i] and time then
                             local countdown = time - moreinfo.share_bones_time
-                            local fmt = (moreinfo.bones_timer_interval and " (shared in %s)")
-                                    or (moreinfo._debug and " {%s}")
-
-                            if fmt then
-                                p:hud_change(wps[n].bones_hid[i], "text"
-                                    , "m away" .. (rc and fmt:format(human_s(countdown)) or "")
-                                    )
+                            local e = enabled("enable_long_text", p)
+                            local str
+                            if moreinfo.bones_timer_interval then
+                                str = " " .. S(e and "(shared in @1)" or "(@1)", human_s(countdown))
+                            elseif moreinfo._debug then
+                                str = " {" .. human_s(countdown) ..  "}"
                             end
+                            p:hud_change(wps[n].bones_hid[i], "text"
+                                    , (e and S("m away") or S("m"))
+                                        .. (rc and str or "")
+                                    )
 
                             -- resync
                             if not moreinfo.bones_timer_interval then
@@ -1020,21 +1053,21 @@ elseif INIT == "game" then
                 debug(" object:" .. (reason.object.name or '-'))
                 local killer = player_or_mob(reason.object)
                 if killer then
-                    msg_part = "killed by " .. killer
+                    msg_part = S("killed by @1", killer)
                 end
             elseif reason.type == "node_damage" then
-                msg_part = "killed by " .. (get_description(reason.node) or "?")
+                msg_part = S("killed by @1", get_description(reason.node) or "?")
             else -- reason.type: { fall | drown | respawn }
-                msg_part = "died by " .. (reason.type or "?")
+                msg_part = S("died by @1", reason.type or "?")
             end
 
             -- `minetest.chat_send_all(text)
             for _, player in pairs(minetest.get_connected_players()) do
                 if (player == dead_player) then
-                    died(dead_player, pos, msg_part or "died")
+                    died(dead_player, pos, msg_part or S("died"))
                 else
                     chat_send_player(player:get_player_name()
-                        , dead_player_name .. " " .. (msg_part or "died")
+                        , dead_player_name .. " " .. (msg_part or S("died"))
                         )
                 end
             end
@@ -1056,17 +1089,19 @@ elseif INIT == "game" then
         huds[player_name] = hud_init()
         local v = minetest.get_version()
         chat_send_player(player_name
-            , "Welcome to " .. v.project .. " " .. (v.hash or v.string)
-            .. " uptime: " .. human_s(minetest.get_server_uptime())
-            .. " game day: " .. minetest.get_day_count()
+            , S("Welcome to @1 @2 uptime: @3 game day: @4"
+                , v.project, (v.hash or v.string)
+                , human_s(minetest.get_server_uptime())
+                , minetest.get_day_count()
+                )
             )
         dump("server_status:".. dump(minetest.get_server_status()))
 
         wp_init(player)
         -- TODO: remove (or expire) tst from old bones
         check_wp_bones(player, player_name)
-        update_wp_bones(player, player_name)
         update_wp_bed(player, player_name)
+        update_wp_bones(player, player_name)
 --        player:hud_set_flags({ minimap = true, minimap_radar =  true })
     end)
 
@@ -1087,6 +1122,12 @@ elseif INIT == "game" then
     for k, _ in pairs(o_func) do
         groups[g].opts[#groups[g].opts +1] = k
     end
+
+    groups[#groups+1] = { prefix = "enable_", opts = { "long_text" }, suffix = "" }
+    o_func.long_text = function(player, player_name)
+            update_wp_bed(player, player_name, true)
+            update_wp_bones(player, player_name)
+        end
 
     local function config_set(player, group, opt, val)
         for _, v in ipairs(group.opts) do
@@ -1120,7 +1161,7 @@ elseif INIT == "game" then
             .. " | "
             .. table.concat(groups[1].opts, " | ")
             .. " } ]",
-        description = "shows version of " .. modname,
+        description = S("shows version of @1", modname),
         func = function(player_name, param)
             local text = modname .. " version " .. moreinfo.version
             local player = minetest.get_player_by_name(player_name)
@@ -1141,7 +1182,7 @@ elseif INIT == "game" then
 
                 return true, text
             elseif not player then
-                return false, "player not set"
+                return false, S("player not set")
             else
                 local first, opt = string.sub(param, 1, 1), string.sub(param, 2)
                 local val = ((first == "+") and 1) or ((first == "-") and 0) or nil
@@ -1158,10 +1199,10 @@ elseif INIT == "game" then
                     text = table.foreach(groups, function(_, group)
                         return config_set(player, group, opt, val)
                     end)
-                    return (text ~= nil), text or "command error"
+                    return (text ~= nil), text or S("command error")
                 end
             end
-            return false, "unknown command"
+            return false, S("unknown command")
         end
     })
 
