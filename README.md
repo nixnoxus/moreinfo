@@ -7,7 +7,7 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
 ## Features
 
 - make deaths public via chat message
-- shows distance to
+- shows the direction and distance to
   - spawn point (position of the last used bed)
   - the last 3 bones
 - shows infomation about the current player position
@@ -17,7 +17,7 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
   - light level (min..max)
   - biome name, heat (T) and humidity (H)
 - shows game infomation
-  - game time
+  - game time and a countdown to the next morning or evening
   - player names and their connection time
 
 All features are enabled by default.
