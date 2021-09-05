@@ -1,5 +1,11 @@
+# server settings
+
 moreinfo.public_death_messages (make deaths public)                                 bool true
 moreinfo.bones_limit           (limits the waypoints to the last N bones)           int  3
+
+# default settings. the player can change own settings with chat commands
+
+moreinfo.enable_long_text      (shows longer descriptions)                          bool true
 
 moreinfo.display_game_info     (shows game infomation (game time, player names))    bool true
 moreinfo.display_players_info  (shows infomation about connected players)           bool true

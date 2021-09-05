@@ -1,0 +1,52 @@
+# textdomain: moreinfo
+
+day: @1=
+evening: @1=
+morning: @1=
+speed: @1 step: @2=
+
+# waypoints
+
+m=
+m away=
+[evening in @1]=
+[evening since @1]=
+
+[shared in @1]=
+(shared in @1)=
+
+time: @1 evening in @2=
+time: @1 morning in @2=
+
+# info
+
+pos: @1=
+map block: @1 offset: @2=
+
+speed: @1 avg: @2 m/s=
+stand: @1 loop: @2=
+
+light: @1 (@2..@3)=
+light: @1 min: @2 max: @3=
+
+biome: @1 T: @2 H: @3=
+biome: @1 heat: @2 humidity: @3=
+
+players: @1=
+rtt @1 @2 @3=
+jitter @1 @2 @3=
+connected since @1=
+
+# chat messages
+
+Welcome to @1 @2 uptime: @3 game day: @4=
+killed by @1=
+died by @1=
+died=
+
+
+# chat commands
+
+shows version of @1=
+player not set=
+command error=
