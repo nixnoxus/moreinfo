@@ -24,7 +24,7 @@ All features are enabled by default.
 The player can change his own settings with chat commands.
 
 ```
-/moreinfo { + | - }{ all | waypoint | position | game | players | bed | bones }
+/moreinfo { + | - }{ any | waypoint | position | game | players | bed | bones }
 ```
 
 The default values can be changed in `minetest.conf`.
