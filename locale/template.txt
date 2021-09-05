@@ -15,8 +15,9 @@ m away=
 [shared in @1]=
 (shared in @1)=
 
-time: @1 evening in @2=
-time: @1 morning in @2=
+time: @1=
+evening in @2=
+morning in @2=
 
 # info
 
