@@ -1,4 +1,4 @@
-# MoreInfo (WIP)
+# MoreInfo
 
 MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
 
