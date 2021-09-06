@@ -1,5 +1,10 @@
 # MoreInfo
 
+[![ContentDB](https://content.minetest.net/packages/nixnoxus/moreinfo/shields/title/)](https://content.minetest.net/packages/nixnoxus/moreinfo/)
+[![ContentDB](https://content.minetest.net/packages/nixnoxus/moreinfo/shields/downloads/)](https://content.minetest.net/packages/nixnoxus/moreinfo/)
+
+
+
 MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
 
 ![Screenshot](screenshot.png)
