@@ -391,7 +391,7 @@ local function update_wp_bed(player, player_name, force_update)
         debug(" spawn " .. dump(spawn))
         if not wps[player_name].bed_hid or force_update then
             debug(" add wp bed")
-            wps[player_name].bed_hid = wp_add(player, "spawn (bed)", spawn)
+            wps[player_name].bed_hid = wp_add(player, S("spawn (bed)"), spawn)
         else
             player:hud_change(wps[player_name].bed_hid, 'world_pos', spawn)
         end
@@ -418,7 +418,7 @@ local function update_wp_bones(player, player_name)
 
         wps[player_name].bones_hid[i] =
             enabled("waypoint_bones", player) and wp_add(player
-                , "bones[" .. i .. "/" .. max .. "]" .. suffix
+                , S("bones(@1/@2)@3", i, max, suffix)
                 , wps[player_name].bones[i].pos
                 )
     end
