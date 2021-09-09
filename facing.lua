@@ -1,5 +1,5 @@
 -- https://forum.minetest.net/viewtopic.php?t=26462
-function facing(digger, objects, liquids)
+function moreinfo.facing(digger, objects, liquids)
         -- calculation of eye position ripped from builtins 'pointed_thing_to_face_pos'
 	local digger_pos = digger:get_pos()
 	local eye_height = digger:get_properties().eye_height
@@ -24,17 +24,16 @@ function facing(digger, objects, liquids)
 	local end_pos = vector.add(look_dir, digger_pos)
 
 	-- get pointed_thing
-	local ray = {}
 	local ray = minetest.raycast(digger_pos, end_pos, objects or false, liquids or false)
 --        if 1 then return ray end
 	local ray_pt = ray:next()
 
-        if not ray_pt then return nil end
-
-        if 1 then return ray_pt end
+        return ray_pt or nil
+--[[
         if 1 then return ray_pt.under end
 
 	local normal = ray_pt.intersection_normal
         -- minetest.debug("face_normal: \n"..dump(normal))
         return normal
+--]]
 end
