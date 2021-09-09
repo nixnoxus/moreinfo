@@ -1,4 +1,5 @@
 # textdomain: moreinfo
+# vim: syntax=gettext
 
 day: @1=
 evening: @1=
@@ -51,6 +52,17 @@ You died=
 
 # chat commands
 
-shows version of @1=
+Welcome to @1 @2 uptime: @3 game day: @4=
+waypoint to your last used bed=
+waypoints to your last bones=
+waypoint direction indicator and info=
+information about the current position=
+game information (like time)=
+information about connected players=
+show long texts=
+all of the above=
+Shows the version of @1 and your current settings.=
+To change your settings, enter the following commands:=
+'/@1 -@2'@3 disables @4=
 player not set=
 command error=
