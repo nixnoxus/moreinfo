@@ -16,8 +16,8 @@ m away=
 (shared in @1)=
 
 time: @1=
-evening in @2=
-morning in @2=
+evening in @1=
+morning in @1=
 
 # info
 
@@ -41,9 +41,10 @@ connected since @1=
 # chat messages
 
 Welcome to @1 @2 uptime: @3 game day: @4=
-killed by @1=
-died by @1=
-died=
+@1 was killed by @2=
+@1 was died by @2=
+You died=
+@1 at @2.=
 
 
 # chat commands

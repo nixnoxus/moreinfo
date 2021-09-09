@@ -1,0 +1,53 @@
+# textdomain: moreinfo
+
+day: @1=Tag: @1
+evening: @1=Abend: @1
+morning: @1=Morgen: @1
+speed: @1 step: @2=Geschwindigkeit: @1 Schritt: @2
+
+# waypoints
+
+m=m
+m away=m entfernt
+[evening in @1]=[Abend in @1]
+[evening since @1]=[Abend seit @1]
+
+[shared in @1]=[frei in @1]
+(shared in @1)=(frei in @1)
+
+time: @1=Zeit: @1
+evening in @1=Abend in @1
+morning in @1=Morgen in @1
+
+# info
+
+pos: @1=Position: @1
+map block: @1 offset: @2=MapBlock: @1 Versatz: @2
+
+speed: @1 avg: @2 m/s=Geschwindigkeit: @1 avg: @2 m/s
+stand: @1 loop: @2=Stand: @1 Schleife: @2
+
+light: @1 (@2..@3)=Licht: @1 (@2..@3)
+light: @1 min: @2 max: @3=Licht: @1 min: @2 max: @3
+
+biome: @1 T: @2 H: @3=Biom: @1 T: @2 H: @3
+biome: @1 heat: @2 humidity: @3=Biom: @1 Wärme: @2 Feuchtigkeit: @3
+
+players: @1=Spieler: @1
+rtt @1 @2 @3=RTT @1 @2
+jitter @1 @2 @3=Jitter @1 @2
+connected since @1=verbunden seit @1
+
+# chat messages
+
+Welcome to @1 @2 uptime: @3 game day: @4=Willkommen zu @1 @2 Uptime: @3 Spieltag: @4
+@1 was killed by @2=@1 wurde getötet durch @2
+@1 was died by @2=@1 ist gestorben durch @2
+You died=Sie sind gestorben
+@1 at @2.=@1 bei @2
+
+# chat commands
+
+shows version of @1=Zeigt Version von @1
+player not set=
+command error=Kommandofehler
