@@ -122,7 +122,7 @@ end
 local function vector2str_1(v) return vector2strf("%.1f", v) end
 
 local function try_keys(list, ...)
-    local ret,i = "", 0
+    local ret = ""
     for i = 1, select('#', ...) do
         local key = select(i, ...)
         if list[key] ~= nil then
@@ -189,7 +189,7 @@ local function get_meta(meta, key, default)
 end
 
 local function set_meta(meta, key, value)
-    local rc = meta and meta:set_string(modname .. ":" .. key, minetest.serialize(value))
+    return meta and meta:set_string(modname .. ":" .. key, minetest.serialize(value))
 end
 
 -- time data and times
@@ -346,7 +346,8 @@ local function wp_info(player, hid, to_pos, add_text)
             return text
         else
             local y = player:get_look_horizontal()
-            local r, a = yaw_to_degree_delta(to_pos, hud.world_pos, y, style)
+            -- FIXME: luacheck: unused variable r
+            local _, a = yaw_to_degree_delta(to_pos, hud.world_pos, y, style)
             --text = text .. string.format(" %+d°", r)
             if style == 1 then
                 return a .. " " .. text
@@ -358,7 +359,6 @@ local function wp_info(player, hid, to_pos, add_text)
 end
 
 local function wp_info_all(player, player_name, to_pos)
-    local i
     local m = {}
     local t = time_in_seconds()
     local e = enabled("enable_long_text", player)
@@ -738,19 +738,22 @@ local function do_hud(player)
             if hud.last.speed ~= 0 then hud_show(hud.looking, player, "") end
             return
         end
-
+        local msg = ""
         if INIT == "client" then
             local n = minetest.get_node_or_nil(hud.pos)
             msg = msg .. "\n" .. (n and n.name or "")
             n = minetest.get_node_or_nil(vector.subtract(hud.pos, { x = 0, y = 1, z = 0 }))
             msg = msg .. "\n" .. (n and n.name or "")
+            hud_show(hud.looking, player, msg)
+--[[
         elseif false then
 --        elseif true then
-            msg = msg .. "\n".. dump(facing(player, true, true))
---            msg = msg .. "\n".. dump(facing(player, true))
+            msg = msg .. "\n".. dump(moreinfo.facing(player, true, true))
+--            msg = msg .. "\n".. dump(moreinfo.facing(player, true))
+--]]
         else
-            local msg = ""
-            local f = facing(player)
+--            local msg = ""
+            local f = moreinfo.facing(player)
             if not f or not f.under then
 
                 local objs = minetest.get_objects_inside_radius(hud.pos, 15)
@@ -774,7 +777,7 @@ local function do_hud(player)
                                     print("object ".. i)
                                     -- print(" obj:" .. dump(obj))
                                     print(" entity:" .. dump(entity))
-
+--[[
                                     if false then
                                         local txt = ""
                                         for k,v in pairs(entity) do
@@ -782,6 +785,7 @@ local function do_hud(player)
                                         end
                                         print(" txt:" .. txt)
                                     end
+..]]
                             --        print(" entity.object:" .. dump(entity.object))
                             end
 
@@ -837,7 +841,7 @@ local function do_hud(player)
                             msg = msg .. "entity.name:" .. (entity.name or "")
                                     .. " .itemstring:" .. (entity.itemstring or "")
                         else
-                            local to_chat, err = pcall(function () return dump(objs[1]) end)
+                            local _, _ = pcall(function () return dump(objs[1]) end)
                             local to_chat, err = pcall(function () return dump(objs[1]:get_meta()) end)
 --                            local to_chat, err = pcall(function () return dump(objs[1]:get_attach()) end)
 --                            local to_chat, err = pcall(function () return dump(objs[1]:hud_get()) end)
@@ -910,8 +914,10 @@ local function player_or_mob(obj)
     else
         local entity = obj:get_luaentity()
         if entity and entity._cmi_is_mob and entity.name then
-            return (minetest.registered_entities[entity.name] and minetest.registered_entities[entity.name].description)
-                or (minetest.registered_craftitems[entity.name] and minetest.registered_craftitems[entity.name].description)
+            return (minetest.registered_entities[entity.name]
+                        and minetest.registered_entities[entity.name].description)
+                or (minetest.registered_craftitems[entity.name]
+                        and minetest.registered_craftitems[entity.name].description)
                 or entity.name or "?"
         else
             return get_description(entity.name) or "?"
@@ -941,6 +947,7 @@ if INIT == "client" then
 
     debug(" csm restrictions" .. dump(minetest.get_csm_restrictions()))
 
+    -- FIXME: luacheck: setting read-only field get_biome_data of global minetest
     minetest.get_biome_data = function(...) return end
     --minetest.get_biome_name = function(...) return end
 
@@ -951,7 +958,7 @@ if INIT == "client" then
     -- minetest.ui.minimap:show()
 
     minetest.register_on_death(function()
-        local player = minetest.localplayer
+--        local player = minetest.localplayer
 	died(player, player:get_pos())
     end)
 
@@ -1018,7 +1025,7 @@ elseif INIT == "game" then
                     local time = minetest.get_meta(pos):get_int("time")
                     debug("bones pos: " .. vector2str(pos) .. " timer: " .. dump(time))
                     local players = minetest.get_connected_players()
-                    _ = table.foreach(players, function(_,p)
+                    local _ = table.foreach(players, function(_,p)
                         local n = get_player_name(p)
                         local i = #wps[n].bones
                         -- 'pos' is rounded, but 'bones[i].pos' is not
@@ -1205,10 +1212,10 @@ elseif INIT == "game" then
                 local first, opt = string.sub(param, 1, 1), string.sub(param, 2)
                 local val = ((first == "+") and 1) or ((first == "-") and 0) or nil
 
-                if val ~= nil and opt == "any" then
+                if val ~= nil and (opt == "any" or opt == "all") then
                     local texts = {}
                     table.foreach(groups, function(_, group)
-                        table.foreach(group.opts, function(_, opt)
+                        table.foreach(group.opts, function(_, opt) -- luacheck: ignore
                             texts[#texts +1] = config_set(player, group, opt, val)
                         end)
                     end)
