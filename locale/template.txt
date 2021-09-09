@@ -7,6 +7,8 @@ speed: @1 step: @2=
 
 # waypoints
 
+spawn (bed)=
+bones(@1/@2)@3=
 m=
 m away=
 [evening in @1]=
