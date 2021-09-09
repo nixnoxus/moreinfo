@@ -346,7 +346,6 @@ local function wp_info(player, hid, to_pos, add_text)
             return text
         else
             local y = player:get_look_horizontal()
-            -- FIXME: luacheck: unused variable r
             local _, a = yaw_to_degree_delta(to_pos, hud.world_pos, y, style)
             --text = text .. string.format(" %+d°", r)
             if style == 1 then
@@ -672,6 +671,7 @@ local get_funcs =
 
 -- local function f2 = function(f) return ("%.2f"):format(f) end
 local function do_hud(player)
+    if not player then return oops("no player in do_hud") end
     local hud = hud_update_player(player)
     if not hud then return oops("no hud in do_hud") end
     local infos = {}
@@ -885,8 +885,10 @@ end
 -- misc functions
 
 local function died(dead_player, pos, msg_part)
-    local msg = "You " .. (msg_part or "died")
-        .. " at " .. minetest.pos_to_string(vector.round(pos)) .. "."
+    local msg = S("@1 at @2."
+        , (msg_part or S("You died"))
+        , minetest.pos_to_string(vector.round(pos))
+        )
     local player_name = get_player_name(dead_player)
     chat_send_player(player_name, minetest.colorize("#F08080", msg))
 
@@ -947,18 +949,19 @@ if INIT == "client" then
 
     debug(" csm restrictions" .. dump(minetest.get_csm_restrictions()))
 
-    -- FIXME: luacheck: setting read-only field get_biome_data of global minetest
     minetest.get_biome_data = function(...) return end
     --minetest.get_biome_name = function(...) return end
 
-    local player = minetest.localplayer
-    debug(" localplayer:"..dump(player))
-    huds[get_player_name(player)] = hud_init()
-    wp_init(player)
+    --minetest.after(1, function()
+    minetest.register_on_mods_loaded(function()
+        local player = minetest.localplayer
+        huds[get_player_name(player)] = hud_init()
+        wp_init(player)
+    end)
     -- minetest.ui.minimap:show()
 
     minetest.register_on_death(function()
---        local player = minetest.localplayer
+        local player = minetest.localplayer
 	died(player, player:get_pos())
     end)
 
@@ -1072,28 +1075,26 @@ elseif INIT == "game" then
         if enabled("public_death_messages") then
         -- Note: chat message "You died." already removed from core
         --  see: https://github.com/minetest/minetest/pull/11443/files
-            local msg_part
+            local msg_part = S("@1 died", dead_player_name)
             debug("dead reason:" .. dump(reason))
             if reason.type == "punch" then
                 debug(" object:" .. (reason.object.name or '-'))
                 local killer = player_or_mob(reason.object)
                 if killer then
-                    msg_part = S("killed by @1", killer)
+                    msg_part = S("@1 was killed by @2", dead_player_name, killer)
                 end
             elseif reason.type == "node_damage" then
-                msg_part = S("killed by @1", get_description(reason.node) or "?")
+                msg_part = S("@1 was killed by @2", dead_player_name, get_description(reason.node) or "?")
             else -- reason.type: { fall | drown | respawn }
-                msg_part = S("died by @1", reason.type or "?")
+                msg_part = S("@1 died by @2", dead_player_name, reason.type or "?")
             end
 
             -- `minetest.chat_send_all(text)
             for _, player in pairs(minetest.get_connected_players()) do
                 if (player == dead_player) then
-                    died(dead_player, pos, msg_part or S("died"))
+                    died(dead_player, pos)
                 else
-                    chat_send_player(player:get_player_name()
-                        , dead_player_name .. " " .. (msg_part or S("died"))
-                        )
+                    chat_send_player(player:get_player_name(), msg_part)
                 end
             end
         end
