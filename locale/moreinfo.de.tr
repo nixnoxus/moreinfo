@@ -1,4 +1,5 @@
 # textdomain: moreinfo
+# vim: syntax=gettext
 
 day: @1=Tag: @1
 evening: @1=Abend: @1
@@ -50,6 +51,16 @@ You died=Sie sind gestorben
 
 # chat commands
 
-shows version of @1=Zeigt Version von @1
+waypoint to your last used bed=Wegpunkt zu Ihrem zuletzt genutzten Bett
+waypoints to your last bones=Wegpunkt zu Ihren letzten Knochen
+waypoint direction indicator and info=Richtungsanzeiger und Info fuer Wegpunkte
+information about the current position=Informationen zur aktuellen Position
+game information (like time)=Spielinformation (wie Uhrzeit)
+information about connected players=Informationen über verbundene Spieler
+show long texts=Lange Texte anzeigen
+all of the above=Alles oben genannte
+Shows the version of @1 and your current settings.=Zeigt die Version von @1 und Ihre aktuellen Einstellungen.
+To change your settings, enter the following commands:=Um Einstellungen zu ändern, folgende Kommandos eingeben:
+'/@1 -@2'@3 disables @4='/@1 -@2'@3 @4 deaktivieren
 player not set=
 command error=Kommandofehler

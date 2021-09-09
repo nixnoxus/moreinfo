@@ -10,7 +10,7 @@ end
 local S = minetest.get_translator(modname)
 
 moreinfo =
-    { version = "1.2.0 devel"
+    { version = "1.2.0"
     , _debug = false
     , _experimental = false
     -- FIXME: ssm vs. csm
@@ -1135,6 +1135,20 @@ elseif INIT == "game" then
         huds[player:get_player_name()] = nil
     end)
 
+    local o_desc =
+        { "bed"       , S("waypoint to your last used bed")
+        , "bones"     , S("waypoints to your last bones")
+        , ''
+        , "waypoint"  , S("waypoint direction indicator and info")
+        , "position"  , S("information about the current position")
+        , "game"      , S("game information (like time)")
+        , "players"   , S("information about connected players")
+        , ''
+        , "long_text" , S("show long texts")
+        , ''
+        , "any"       , S("all of the above")
+        }
+
     local o_func = { bed = update_wp_bed, bones = update_wp_bones }
     local groups =
         {   { prefix = "display_"
@@ -1181,13 +1195,39 @@ elseif INIT == "game" then
         end
     end
 
+    local function desc(player)
+        local texts =
+            { S("Shows the version of @1 and your current settings.", modname)
+            , ""
+            , S("To change your settings, enter the following commands:")
+            , ""
+            }
+        local i =1
+        while (i < #o_desc) do
+            if o_desc[i] == "" then
+                texts[#texts+1] = ""
+                i = i +1
+            else
+                texts[#texts+1] = S("'/@1 -@2'@3 disables @4"
+                    , modname
+                    , o_desc[i]
+                    , ("            "):sub(1, 12 - o_desc[i]:len())
+                    , o_desc[i+1]
+                    )
+                i = i +2
+            end
+        end
+
+        return table.concat(texts, "\n")
+    end
+
     minetest.register_chatcommand(modname, {
         params = "[ { + | - }{ any | "
             .. table.concat(groups[2].opts, " | ")
             .. " | "
             .. table.concat(groups[1].opts, " | ")
             .. " } ]",
-        description = S("shows version of @1", modname),
+        description = desc(),
         func = function(player_name, param)
             local text = modname .. " version " .. moreinfo.version
             local player = minetest.get_player_by_name(player_name)
