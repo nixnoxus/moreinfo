@@ -13,6 +13,8 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
 ## Features
 
 - make deaths public via chat message
+- shows surrounding objects
+- shows the targeted block
 - shows the direction and distance to
   - spawn point (position of the last used bed)
   - the last 3 bones
@@ -36,6 +38,9 @@ moreinfo.bones_limit = 3
 # default settings. the player can change his own settings with chat commands
 moreinfo.enable_long_text = false
 
+moreinfo.display_environ_info = false
+moreinfo.display_pointed_info = false
+
 moreinfo.display_waypoint_info = false
 moreinfo.display_position_info = false
 moreinfo.display_game_info = false
@@ -47,7 +52,7 @@ moreinfo.waypoint_bones = false
 
 - The player can change his own settings with chat commands. The format is as follows:
 ```
-/moreinfo { + | - }{ any | waypoint | position | game | players | bed | bones | long_text }
+/moreinfo { + | - }{ any | environ | pointed | waypoint | position | game | players | bed | bones | long_text }
 ```
 - Examples
 ```
@@ -55,6 +60,9 @@ moreinfo.waypoint_bones = false
 
 /moreinfo +bed
 /moreinfo +bones
+
+/moreinfo +environ
+/moreinfo +pointed
 
 /moreinfo +waypoint
 /moreinfo +position

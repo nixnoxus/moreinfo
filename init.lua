@@ -10,26 +10,36 @@ end
 local S = minetest.get_translator(modname)
 
 moreinfo =
-    { version = "1.2.0"
-    , _debug = false
-    , _experimental = false
+    { version = "1.3.0 devel"
+    , _debug = 1 -- false
+    , _experimental = 1 --false
     -- FIXME: ssm vs. csm
     , text_color = ((INIT == "client") and '#8080E0' or'#F0F080')
     , bones_limit = get_setting_int(modname .. ":bones_limit", 3)
+    , environ_limit = get_setting_int(modname .. ":environ_limit", 32)
     -- see https://github.com/minetest/minetest_game/blob/5.4.1/mods/bones/init.lua#L28
     , share_bones_time = get_setting_int("share_bones_time", 1200)
     -- nil: resync tst, >0: override bones:bones timer
     , bones_timer_interval = nil
     }
 
-if moreinfo._experimental then
-    dofile(modpath .. "/facing.lua")
-end
+dofile(modpath .. "/facing.lua")
 
 -- common functions
 
 local function debug(msg)
     if moreinfo._debug then print(msg) end
+end
+
+local function add_debug_or_nil(debug_msg, pre_msg)
+    if moreinfo._debug then
+        return (pre_msg or "") .. "{" .. (debug_msg or "") .. "}"
+    else
+        return nil
+    end
+end
+local function add_debug(debug_msg, pre_msg)
+    return add_debug_or_nil(debug_msg, pre_msg) or pre_msg or ""
 end
 
 local function oops(msg)
@@ -126,7 +136,13 @@ local function try_keys(list, ...)
     for i = 1, select('#', ...) do
         local key = select(i, ...)
         if list[key] ~= nil then
-            ret = ret .. " " .. key .. "=" .. (list[key] or "")
+            if type(list[key]) == "boolean" then
+                ret = ret .. " " .. key .. "=" .. (list[key] == true and "true" or "false")
+            elseif type(list[key]) == "string" or type(list[key]) == "number" then
+                ret = ret .. " " .. key .. "=" .. (list[key] or "")
+            else
+                ret = ret .. " " .. key .. "=" .. type(list[key])
+            end
         end
     end
     return ret
@@ -182,6 +198,17 @@ local function yaw_to_degree_delta(from_pos, to_pos, look_yaw, style)
         return r, string.sub((r < 0) and "<<<<<<" or ">>>>>>", 1, c);
     end
 end
+
+local function yaw_delta_info(from_pos, to_pos, look_yaw, style, text)
+    local _, a = yaw_to_degree_delta(from_pos, to_pos, look_yaw, style)
+    --text = text .. string.format(" %+d°", r)
+    if style == 1 then
+        return a .. " " .. text
+    else
+        return text .. " " .. a
+    end
+end
+
 
 local function get_meta(meta, key, default)
     local json = meta and meta:get(modname .. ":" .. key)
@@ -303,7 +330,7 @@ local function times_info()
         speed = times.now.speed
         step  = times.now.step
     end
-    str = str .. " " .. S("speed: @1 step: @2", speed, step) .. "\n"
+    str = str .. " " .. S("speed: @1 step: @2", speed or "-", step or "-") .. "\n"
 
     return str
 end
@@ -338,7 +365,6 @@ end
 
 local function wp_info(player, hid, to_pos, add_text)
     local hud = hid and player:hud_get(hid)
-    local style = 1
     if hud and to_pos then
         local d = hud.world_pos and math.floor(vector.distance(hud.world_pos, to_pos)) or '?'
         local text = hud.name .. ": " .. d .. hud.text .. (add_text or "")
@@ -346,13 +372,7 @@ local function wp_info(player, hid, to_pos, add_text)
             return text
         else
             local y = player:get_look_horizontal()
-            local _, a = yaw_to_degree_delta(to_pos, hud.world_pos, y, style)
-            --text = text .. string.format(" %+d°", r)
-            if style == 1 then
-                return a .. " " .. text
-            else
-                return text .. " " .. a
-            end
+            return yaw_delta_info(to_pos, hud.world_pos, y, 1, text)
         end
     end
 end
@@ -371,13 +391,13 @@ local function wp_info_all(player, player_name, to_pos)
         else
             local s = (t - wps[player_name].bones[i].tst - moreinfo.share_bones_time)
             local str = ((not moreinfo.bones_timer_interval) and S(_bone, human_s(s)))
-                or (moreinfo._debug and "{" .. human_s(s) .. "}")
+                or add_debug(human_s(s))
 
             m[#m + 1] = wp_info(player, hid, to_pos, (str and s and s < 0) and " " .. str)
         end
     end
 
-    return #m and table.concat(m, "\n") .. "\n"
+    return table.concat(m, "\n") .. "\n"
 end
 
 -- way point bed (ssm only)
@@ -513,7 +533,18 @@ local function hud_init()
                 , number = moreinfo.text_color:gsub('#', '0x')
                 }
             }
-        , looking =
+        , pointed =
+            { id = nil
+            , def =
+                { hud_elem_type = 'text'
+                , position  = { x = 0.5, y = 0.45 } -- 0 .. 1
+                , alignment = { x = 0, y = -1 }  -- -1 .. +1
+                , text = nil
+                , scale = { x = 50, y = 100 }
+                , number = moreinfo.text_color:gsub('#', '0x')
+                }
+            }
+        , environ =
             { id = nil
             , def =
                 { hud_elem_type = 'text'
@@ -530,14 +561,23 @@ local function hud_init()
     if INIT == "client" then
         hud.standing.def.position.x = 1
         hud.standing.def.alignment.x = -1
+
+        hud.pointed.def.position.y = 0.6
     end
     return hud
 end
 
 local last_text = ""
 local function hud_show(h, player, text)
-    h.def.text = text
-    if not h.id then
+    if not text then
+        if h.id then
+            player:hud_remove(h.id)
+            h.id = nil
+        else
+            return
+        end
+    elseif not h.id then
+        h.def.text = text
         h.id = player:hud_add(h.def)
     else
         player:hud_change(h.id, 'text', text)
@@ -609,11 +649,7 @@ local function get_game_info(player, e)
             or  S(e and "morning in @1" or 'm: @1', human_s(times.morning))
         ) .. "\n"
 
-    if moreinfo._debug then
-        str = str .. "{" .. times_info() .. "}"
-    end
-
-    return str
+    return add_debug(times_info(), str)
 end
 
 local function hud_update_player(player)
@@ -623,7 +659,7 @@ local function hud_update_player(player)
 
     hud.last =
         { pos   = hud.pos
-        , ipos  = hud.ipos
+--        , ipos  = hud.ipos
         , utime = hud.utime
         , speed = hud.speed
         }
@@ -669,11 +705,7 @@ local get_funcs =
     , players_long_info = function(player, e) return get_players_info(player, e, true) end
     }
 
--- local function f2 = function(f) return ("%.2f"):format(f) end
-local function do_hud(player)
-    if not player then return oops("no player in do_hud") end
-    local hud = hud_update_player(player)
-    if not hud then return oops("no hud in do_hud") end
+local function get_infos(player, hud)
     local infos = {}
 
     if enabled("display_waypoint_info", player) then
@@ -730,156 +762,205 @@ local function do_hud(player)
         end
     end)
 
-    hud_show(hud.standing, player, string.gsub(table.concat(infos, "\n"),"\n+$", ""))
+    return infos
+end
 
-    if not moreinfo._experimental then return end
+local function node_pos(v)
+    local n = minetest.get_node_or_nil(v)
+    if n and n.name and n.name ~= "air" then
+        return n.name
+    end
+end
 
-        if hud.speed ~= 0 then
-            if hud.last.speed ~= 0 then hud_show(hud.looking, player, "") end
-            return
+local get_facing_info
+local get_environ_info
+if INIT == "client" then
+    get_facing_info = function(player, hud)
+        return node_pos(hud.pos)
+            or node_pos(vector.subtract(hud.pos, { x = 0, y = 1, z = 0 }))
+            or ""
+    end
+else
+    get_environ_info = function(player, hud)
+        local objs = minetest.get_objects_inside_radius(hud.pos, moreinfo.environ_limit)
+        local infos = { add_debug_or_nil("items around " .. moreinfo.environ_limit .. " blocks:" .. #objs) }
+        if #objs > 0 then
+            hud.stand_loop = hud.stand_loop +1
         end
-        local msg = ""
-        if INIT == "client" then
-            local n = minetest.get_node_or_nil(hud.pos)
-            msg = msg .. "\n" .. (n and n.name or "")
-            n = minetest.get_node_or_nil(vector.subtract(hud.pos, { x = 0, y = 1, z = 0 }))
-            msg = msg .. "\n" .. (n and n.name or "")
-            hud_show(hud.looking, player, msg)
---[[
-        elseif false then
---        elseif true then
-            msg = msg .. "\n".. dump(moreinfo.facing(player, true, true))
---            msg = msg .. "\n".. dump(moreinfo.facing(player, true))
---]]
-        else
---            local msg = ""
-            local f = moreinfo.facing(player)
-            if not f or not f.under then
 
-                local objs = minetest.get_objects_inside_radius(hud.pos, 15)
-                msg = "items around 15 blocks:" .. #objs
-                if #objs > 0 then
-                    hud.stand_loop = hud.stand_loop +1
-                end
+        local objects = {}
+        for i, obj in ipairs(objs) do
+            if not obj then
+                infos[#infos +1] = add_debug_or_nil("nix obj")
+            else
+                local obj_pos = obj:get_pos()
+                local dbg = add_debug(vector2str_1(obj_pos)
+                    .. try_keys(obj, "name", "type", "description") .. " ")
+                local object
 
-                for i, obj in ipairs(objs) do
-                    if not obj then
-                        msg = msg .. "\n" .. i .. " nix obj"
+                if obj:is_player() then
+                    if obj == player then
+                        dbg = add_debug("player: self", dbg)
                     else
-                        msg = msg .. "\n" .. i .. " " .. vector2str_1(obj:get_pos())
-                            .. try_keys(obj, "name", "type", "description")
-
-                        if obj:is_player() then
-                            msg = msg .. " player: " .. obj:get_player_name() or '?'
-                        else
-                            local entity = obj:get_luaentity()
-                            if hud.stand_loop == 1 then
-                                    print("object ".. i)
-                                    -- print(" obj:" .. dump(obj))
-                                    print(" entity:" .. dump(entity))
+                        object = { type = "player", name = obj:get_player_name() }
+                    end
+                else
+                    local entity = obj:get_luaentity()
+                    if hud.stand_loop == 1 then
+                            print("object ".. i)
+                            -- print(" obj:" .. dump(obj))
+                            print(" entity:" .. dump(entity))
 --[[
-                                    if false then
-                                        local txt = ""
-                                        for k,v in pairs(entity) do
-                                            txt = txt .. "\n" .. (k or "") --.. "=" .. (v or "")
-                                        end
-                                        print(" txt:" .. txt)
-                                    end
-..]]
-                            --        print(" entity.object:" .. dump(entity.object))
-                            end
-
-                            if not entity then
-                                msg = msg .. " nix entity"
-                            else
-                                if entity._cmi_is_mob then
-                                    msg = msg .. " [mob "..(entity["type"] or "").."]"
+                            if false then
+                                local txt = ""
+                                for k,v in pairs(entity) do
+                                    txt = txt .. "\n" .. (k or "") --.. "=" .. (v or "")
                                 end
-                                msg = msg .. try_keys(entity, "name", "itemstring", "type", "description")
+                                print(" txt:" .. txt)
                             end
-                        end
+..]]
+                    --        print(" entity.object:" .. dump(entity.object))
                     end
-                end
 
-                if hud.stand_loop == 1 then
-                    print(msg)
-                end
-
-                hud_show(hud.looking, player, msg)
-                return
-            end
-
-            local fpos = f.under
-            hud.ipos = f.intersection_point
---                ipos = f.above
-
-            if hud.ipos then
-                msg = msg .. "\nipos: " .. vector2str_1(hud.ipos)
-
-                local objs = minetest.get_objects_inside_radius(hud.ipos, .5)
-                if #objs >= 1 then
-                     msg = msg .. "\nobj(1/"..#objs.."): "
-                    if not objs[1] then
-                        msg = msg .. "nix"
-                    elseif objs[1]:is_player() then
-                        msg = msg .. "player: " .. objs[1]:get_player_name() or '?'
+                    if not entity then
+                        dbg = add_debug("nix entity", dbg)
                     else
-                        -- itemstring, age, object, moving_state
-                        local entity = objs[1]:get_luaentity()
---[[
-                        if entity then
-                            local e = entity:get_luaentity()
-                            if e then entity = e end
-                        end
---]]
-                        if not entity then
-                            msg = msg .. "nix entity"
-                        elseif entity.name == "__builtin:item" and entity.itemstring ~= "" then
-                            msg = msg .. "entity.itemstring " .. entity.itemstring
-                                .. " [-" .. (900 - math.floor(entity.age)) .. "s]"
-                        elseif entity.name or entity.itemstring then
-                            msg = msg .. "entity.name:" .. (entity.name or "")
-                                    .. " .itemstring:" .. (entity.itemstring or "")
-                        else
-                            local _, _ = pcall(function () return dump(objs[1]) end)
-                            local to_chat, err = pcall(function () return dump(objs[1]:get_meta()) end)
---                            local to_chat, err = pcall(function () return dump(objs[1]:get_attach()) end)
---                            local to_chat, err = pcall(function () return dump(objs[1]:hud_get()) end)
---                            local to_chat, err = pcall(function () return dump(objs[1]:get_properties()) end)
---                            local to_chat, err = pcall(function () return dump(entity) end)
-                            if not err then
-                                msg = msg .. "dump: ^"
-                            else
-                                msg = msg .. "err: ^"
-                                to_chat = err
-                            end
-
-                            if not hud.last.ipos or not vector.equals(hud.last.ipos, hud.ipos) then
-                                chat_send_player(get_player_name(player), "dump:" .. to_chat)
-                                print(to_chat)
-                            end
-
---                                minetest.display_chat_message(d) --csm
+                        dbg = add_debug(try_keys(entity
+                            , "name", "itemstring", "type", "description"
+                            -- mobs_redo:
+                            , "tamed", "owner", "child" -- , "_breed_countdown"
+                            ), dbg)
+                        if entity.name and entity.name == "__builtin:item" then
+                            object =
+                                { type = "item"
+                                , name = entity.itemstring
+                                , info = entity.age and human_s(entity.age - 900)
+                                }
+                        elseif entity._cmi_is_mob then
+                            object =
+                                { type = entity.type or "mob"
+                                , name = entity.name
+                                }
                         end
                     end
-
-                    hud_show(hud.looking, player, msg)
-                    return
+                end
+                if object or dbg ~= "" then
+                    objects[#objects +1] = object or {}
+                    objects[#objects].d = math.floor(vector.distance(hud.pos, obj_pos))
+                    objects[#objects].pos = obj_pos
+                    objects[#objects].dbg = dbg
                 end
             end
+        end
 
-            msg = msg .. "\nfacing: " .. vector2str(fpos)
-            local n = minetest.get_node_or_nil(fpos)
-            if n then
-                msg = msg .. "\nnode: " .. (n.name or "")
+        local y = player:get_look_horizontal()
+
+        local function spairs(tbl, order_func)
+            local ptrs = {}
+            for p in pairs(tbl) do ptrs[#ptrs +1] = p end
+            table.sort(ptrs, function(a, b) return order_func(a, b) end)
+            local i = 0
+            return function()
+                i = i +1
+                if ptrs[i] then
+                    return ptrs[i], tbl[ptrs[i]]
+                end
+            end
+        end
+
+        for _, object in spairs(objects
+            , function(a, b) return objects[b].d < objects[a].d end
+            ) do
+            local info = (object.type) and (object.type or "?")
+                    .. ": " .. (object.name or "?")
+                    .. (object.info and "(" .. object.info .. ")" or "")
+
+            infos[#infos +1] = yaw_delta_info(hud.pos, object.pos, y, 1
+--                , object.dbg .. (info or "") .. " " .. (object.d or "?") .. S("m away")
+                , (object.d or "?") .. S("m away") .. " " .. (info or "") .. object.dbg
+                )
+        end
+            --infos[#infos +1] = dbg .. (info or "")
+
+        local msg = table.concat(infos, "\n")
+        if hud.stand_loop == 1 then print(msg) end -- FIXME:
+
+        return msg
+    end
+
+    get_facing_info = function(player, hud)
+        local f = moreinfo.facing(player)
+        local pos = f and f.intersection_point
+
+        if pos then
+            local n = minetest.get_node_or_nil(pos)
+            if n and n.name and n.name == "air" then
+                pos = f.under
+                n = minetest.get_node_or_nil(pos)
+            end
+
+            local infos = { add_debug_or_nil("facing: " .. vector2str(pos)) }
+            if n and n.name then
+                infos[#infos +1] = (n.name or "")
                     .. " (" .. (n.param1 or "-")
                     .. "," .. (n.param2 or "-")
                     .. ")"
             end
-
-            hud_show(hud.looking, player, msg)
-            return
+            return table.concat(infos, "\n")
+        else
+            return add_debug_or_nil("no pos")
         end
+
+--[[
+                    local _, _ = pcall(function () return dump(objs[1]) end)
+                    local to_chat, err = pcall(function () return dump(objs[1]:get_meta()) end)
+--                            local to_chat, err = pcall(function () return dump(objs[1]:get_attach()) end)
+--                            local to_chat, err = pcall(function () return dump(objs[1]:hud_get()) end)
+--                            local to_chat, err = pcall(function () return dump(objs[1]:get_properties()) end)
+--                            local to_chat, err = pcall(function () return dump(entity) end)
+                    if not err then
+                        dbg = add_debug("dump: ^", dbg)
+                    else
+                        dbg = add_debug("err: ^", dbg)
+                        to_chat = err
+                    end
+
+                    if not hud.last.ipos or not vector.equals(hud.last.ipos, hud.ipos) then
+                        chat_send_player(get_player_name(player), "dump:" .. to_chat)
+                        print(to_chat)
+                    end
+--                                minetest.display_chat_message(d) --csm
+--]]
+    end
+end
+
+local function do_huds(player)
+    if not player then return oops("no player in do_huds") end
+
+    local hud = hud_update_player(player)
+    if not hud then return oops("no hud in do_huds") end
+
+    local infos = get_infos(player, hud)
+    local msg = table.concat(infos, "\n") or ""
+    hud_show(hud.standing, player, string.gsub(msg,"\n+$", ""))
+
+    if not moreinfo._experimental then return end
+--[[
+    if hud.speed ~= 0 and hud.last.speed ~= 0 then
+        hud_show(hud.pointed, player, "")
+        return
+    end
+--]]
+
+    hud_show(hud.pointed, player
+        , enabled("display_pointed_info", player) and get_facing_info(player, hud)
+        )
+
+    if get_environ_info then
+        hud_show(hud.environ, player
+            , enabled("display_environ_info", player) and get_environ_info(player, hud)
+            )
+    end
 end
 
 -- misc functions
@@ -971,7 +1052,7 @@ if INIT == "client" then
         timer = 0
     --debug("localplayer:"..dump(player))
         times_update()
-        do_hud(minetest.localplayer)
+        do_huds(minetest.localplayer)
 
 --        print(dump(player:get_player_control_bits())) -- fail
 --        print(dump(player:get_key_pressed())) -- fail
@@ -1139,6 +1220,9 @@ elseif INIT == "game" then
         { "bed"       , S("waypoint to your last used bed")
         , "bones"     , S("waypoints to your last bones")
         , ''
+        , "environ"   , S("surrounding objects")
+        , "pointed"   , S("targeted block")
+        , ''
         , "waypoint"  , S("waypoint direction indicator and info")
         , "position"  , S("information about the current position")
         , "game"      , S("game information (like time)")
@@ -1152,12 +1236,16 @@ elseif INIT == "game" then
     local o_func = { bed = update_wp_bed, bones = update_wp_bones }
     local groups =
         {   { prefix = "display_"
-            , opts = { "waypoint", "position", "game", "players_long", "players" }
+            , opts =
+                { "environ", "pointed"
+                , "waypoint", "position", "game", "players_long", "players"
+                }
             , suffix = "_info"
             }
         ,   { prefix = "waypoint_", opts = {}, suffix = "" }
         }
 
+    -- waypoint_*
     do
         local g = #groups
         for k, _ in pairs(o_func) do
@@ -1165,6 +1253,7 @@ elseif INIT == "game" then
         end
     end
 
+    -- enable_long_text
     groups[#groups+1] = { prefix = "enable_", opts = { "long_text" }, suffix = "" }
     o_func.long_text = function(player, player_name)
             update_wp_bed(player, player_name, true)
@@ -1271,6 +1360,9 @@ elseif INIT == "game" then
                         end)
                     end)
                     return true, table.concat(texts, "\n")
+                elseif opt == "debug" then -- FIXME: devel
+                    moreinfo._debug = (val == 1)
+                    return true
                 elseif val ~= nil and opt ~= nil then
                     text = table.foreach(groups, function(_, group)
                         return config_set(player, group, opt, val)
@@ -1290,7 +1382,7 @@ elseif INIT == "game" then
         update_players_info()
 
         for _, player in pairs(minetest.get_connected_players()) do
-            do_hud(player)
+            do_huds(player)
         end
     end)
 end

@@ -2,10 +2,14 @@
 
 moreinfo.public_death_messages (make deaths public)                                 bool true
 moreinfo.bones_limit           (limits the waypoints to the last N bones)           int  3
+moreinfo.environ_limit         (limits the radius for environ_info)                 int  32
 
 # default settings. the player can change his own settings with chat commands
 
 moreinfo.enable_long_text      (shows longer descriptions)                          bool true
+
+moreinfo.display_environ_info  (show information about surrounding objects)         bool true
+moreinfo.display_pointed_info  (show information about the targeted block)          bool true
 
 moreinfo.display_waypoint_info (shows distance to bed and bones)                    bool true
 moreinfo.display_position_info (shows infomation about the current player position) bool true

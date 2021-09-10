@@ -24,6 +24,9 @@ morning in @1=
 
 # info
 
+surrounding objects=
+targeted block=
+
 pos: @1=
 map block: @1 offset: @2=
 
@@ -56,6 +59,8 @@ Welcome to @1 @2 uptime: @3 game day: @4=
 waypoint to your last used bed=
 waypoints to your last bones=
 waypoint direction indicator and info=
+surrounding objects=
+pointed block=
 information about the current position=
 game information (like time)=
 information about connected players=
