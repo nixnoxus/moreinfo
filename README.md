@@ -2,6 +2,7 @@
 
 [![ContentDB](https://content.minetest.net/packages/nixnoxus/moreinfo/shields/title/)](https://content.minetest.net/packages/nixnoxus/moreinfo/)
 [![ContentDB](https://content.minetest.net/packages/nixnoxus/moreinfo/shields/downloads/)](https://content.minetest.net/packages/nixnoxus/moreinfo/)
+[![luacheck](https://github.com/nixnoxus/moreinfo/workflows/luacheck/badge.svg)](https://github.com/nixnoxus/moreinfo/actions/workflows/luacheck.yml)
 
 
 
@@ -26,25 +27,41 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
   - player names and their connection time
 
 All features are enabled by default.
-The player can change his own settings with chat commands.
-
-```
-/moreinfo { + | - }{ any | waypoint | position | game | players | bed | bones }
-```
-
-The default values can be changed in `minetest.conf`.
-
-```
+- The server admin can change the defaults in `minetest.conf`. For example:
+```ini
+# server settings
 moreinfo.public_death_messages = true
 moreinfo.bones_limit = 3
 
-moreinfo.display_game_info = true
-moreinfo.display_players_info = true
-moreinfo.display_position_info = true
-moreinfo.display_waypoint_info = true
+# default settings. the player can change his own settings with chat commands
+moreinfo.enable_long_text = false
 
-moreinfo.waypoint_bed = true
-moreinfo.waypoint_bones = true
+moreinfo.display_waypoint_info = false
+moreinfo.display_position_info = false
+moreinfo.display_game_info = false
+moreinfo.display_players_info = false
+
+moreinfo.waypoint_bed = false
+moreinfo.waypoint_bones = false
+```
+
+- The player can change his own settings with chat commands. The format is as follows:
+```
+/moreinfo { + | - }{ any | waypoint | position | game | players | bed | bones | long_text }
+```
+- Examples
+```
+/moreinfo -any
+
+/moreinfo +bed
+/moreinfo +bones
+
+/moreinfo +waypoint
+/moreinfo +position
+/moreinfo +game
+/moreinfo +players
+
+/moreinfo +long_text
 ```
 
 ## Supported mods
