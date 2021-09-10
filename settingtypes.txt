@@ -3,14 +3,14 @@
 moreinfo.public_death_messages (make deaths public)                                 bool true
 moreinfo.bones_limit           (limits the waypoints to the last N bones)           int  3
 
-# default settings. the player can change own settings with chat commands
+# default settings. the player can change his own settings with chat commands
 
 moreinfo.enable_long_text      (shows longer descriptions)                          bool true
 
+moreinfo.display_waypoint_info (shows distance to bed and bones)                    bool true
+moreinfo.display_position_info (shows infomation about the current player position) bool true
 moreinfo.display_game_info     (shows game infomation (game time, player names))    bool true
 moreinfo.display_players_info  (shows infomation about connected players)           bool true
-moreinfo.display_position_info (shows infomation about the current player position) bool true
-moreinfo.display_waypoint_info (shows distance to bed and bones)                    bool true
 
 moreinfo.waypoint_bed          (shows waypoint to the last used bed)                bool true
 moreinfo.waypoint_bones        (shows waypoint to your own bones)                   bool true
