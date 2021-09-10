@@ -1158,9 +1158,11 @@ elseif INIT == "game" then
         ,   { prefix = "waypoint_", opts = {}, suffix = "" }
         }
 
-    local g = #groups
-    for k, _ in pairs(o_func) do
-        groups[g].opts[#groups[g].opts +1] = k
+    do
+        local g = #groups
+        for k, _ in pairs(o_func) do
+            groups[g].opts[#groups[g].opts +1] = k
+        end
     end
 
     groups[#groups+1] = { prefix = "enable_", opts = { "long_text" }, suffix = "" }
@@ -1221,13 +1223,21 @@ elseif INIT == "game" then
         return table.concat(texts, "\n")
     end
 
+    local function all_opts()
+        local opts = {}
+        for g, _ in ipairs(groups) do
+            for o, _ in ipairs(groups[g].opts) do
+                opts[#opts+1] = groups[g].opts[o]
+            end
+        end
+        return opts
+    end
+
     minetest.register_chatcommand(modname, {
         params = "[ { + | - }{ any | "
-            .. table.concat(groups[2].opts, " | ")
-            .. " | "
-            .. table.concat(groups[1].opts, " | ")
+            .. table.concat(all_opts(), " | ")
             .. " } ]",
-        description = desc(),
+        description = "\n" .. desc(),
         func = function(player_name, param)
             local text = modname .. " version " .. moreinfo.version
             local player = minetest.get_player_by_name(player_name)
