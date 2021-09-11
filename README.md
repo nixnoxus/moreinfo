@@ -29,6 +29,8 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
   - player names and their connection time
 - shows timers for breeding and growing
 
+## Settings
+
 All features are enabled by default.
 - The server admin can change the defaults in `minetest.conf`. For example:
 ```ini
@@ -51,10 +53,11 @@ moreinfo.display_breeding_info = false
 moreinfo.waypoint_bed = false
 moreinfo.waypoint_bones = false
 ```
+## Chat commands
 
 - The player can change his own settings with chat commands. The format is as follows:
 ```
-/moreinfo { + | - }{ any | environ | pointed | waypoint | position | game | players | breeding | bed | bones | long_text }
+/moreinfo {+|-}{any|environ|pointed|waypoint|position|game|players|breeding|bed|bones|long_text}
 ```
 - Examples
 ```
