@@ -35,8 +35,9 @@ All features are enabled by default.
 - The server admin can change the defaults in `minetest.conf`. For example:
 ```ini
 # server settings
-moreinfo.public_death_messages = true
+moreinfo.public_death_messages = false
 moreinfo.bones_limit = 3
+moreinfo.environ_limit = 16
 
 # default settings. the player can change his own settings with chat commands
 moreinfo.enable_long_text = false
