@@ -11,8 +11,7 @@ local S = minetest.get_translator(modname)
 
 moreinfo =
     { version = "1.3.0 devel"
-    , _debug = 1 -- false
-    , _experimental = 1 --false
+    , _debug = false
     -- FIXME: ssm vs. csm
     , text_color = ((INIT == "client") and '#8080E0' or'#F0F080')
     , bones_limit = get_setting_int(modname .. ":bones_limit", 3)
@@ -46,7 +45,13 @@ local function oops(msg)
     print("[" .. modname .. "] oops: " .. msg)
 end
 
-local defaults = { display_players_long_info = false }
+local defaults = (INIT == "client")
+    and { display_environ_info      = false
+        , display_players_info      = false
+        , display_players_long_info = false
+        , display_breeding_info     = false
+        }
+    or  { display_players_long_info = false }
 local function enabled(key, player)
     if INIT == "client" then
         if defaults[key] ~= nil then
@@ -555,6 +560,7 @@ local function hud_init()
                 , number = moreinfo.text_color:gsub('#', '0x')
                 }
             }
+        , tamed_mobs = {}
         }
 
     -- FIXME: ssm vs. csm
@@ -720,15 +726,16 @@ local function get_infos(player, hud)
         local msg = S("pos: @1", vector2str(hud.rpos)) .. "\n"
             .. S("map block: @1 offset: @2", vector2str(hud.mpos), vector2str(hud.opos))
 
-        if hud.speed ~= 0 or not moreinfo._experimental then
-            msg = msg .. "\n" .. S("speed: @1 avg: @2 m/s"
-                , ("%.1f"):format(hud.speed)
-                , ("%.1f"):format(hud.speed_avg)
-                )
-        else
+        -- FIXME: devel
+        if nil and hud.speed == 0 and moreinfo._debug then
             msg = msg .. "\n" .. S("stand: @1 loop: @2"
                 , math.floor(hud.stand / 1000000 + 0.5)
                 , hud.stand_loop
+                )
+        else
+            msg = msg .. "\n" .. S("speed: @1 avg: @2 m/s"
+                , ("%.1f"):format(hud.speed)
+                , ("%.1f"):format(hud.speed_avg)
                 )
         end
 
@@ -762,6 +769,20 @@ local function get_infos(player, hud)
         end
     end)
 
+    if enabled("display_breeding_info", player) and hud.tamed_mobs and #hud.tamed_mobs then
+        infos[#infos +1] = S("breeding:")
+        for k, v in pairs(hud.tamed_mobs) do
+            local timer =(times.now.time - v.timer)
+            -- flag is '*' when unloaded
+            local flag = v.obj and v.obj:get_pos() and "" or "*"
+
+            infos[#infos +1] = " " .. k
+                .. ": " .. v.count
+                .. ((timer < 0 ) and (" " .. S(e and "feeding in @1" or "@1", human_s(timer))) or "")
+                .. flag
+        end
+    end
+
     return infos
 end
 
@@ -789,6 +810,7 @@ else
         end
 
         local objects = {}
+        local tamed_mobs = {}
         for i, obj in ipairs(objs) do
             if not obj then
                 infos[#infos +1] = add_debug_or_nil("nix obj")
@@ -802,54 +824,82 @@ else
                     if obj == player then
                         dbg = add_debug("player: self", dbg)
                     else
-                        object = { type = "player", name = obj:get_player_name() }
+                        object = { type = "player", name = obj:get_player_name(), prio = 2 }
                     end
                 else
                     local entity = obj:get_luaentity()
-                    if hud.stand_loop == 1 then
-                            print("object ".. i)
-                            -- print(" obj:" .. dump(obj))
-                            print(" entity:" .. dump(entity))
---[[
-                            if false then
-                                local txt = ""
-                                for k,v in pairs(entity) do
-                                    txt = txt .. "\n" .. (k or "") --.. "=" .. (v or "")
-                                end
-                                print(" txt:" .. txt)
-                            end
-..]]
-                    --        print(" entity.object:" .. dump(entity.object))
-                    end
-
                     if not entity then
                         dbg = add_debug("nix entity", dbg)
                     else
                         dbg = add_debug(try_keys(entity
-                            , "name", "itemstring", "type", "description"
+                            , "name", "itemstring", "type", "description", "nodename"
                             -- mobs_redo:
                             , "tamed", "owner", "child" -- , "_breed_countdown"
+                            --, "max_speed_reverse", "max_speed_forward" -- mobs_horse
                             ), dbg)
                         if entity.name and entity.name == "__builtin:item" then
                             object =
                                 { type = "item"
                                 , name = entity.itemstring
                                 , info = entity.age and human_s(entity.age - 900)
+                                , prio = 4
                                 }
                         elseif entity._cmi_is_mob then
                             object =
                                 { type = entity.type or "mob"
                                 , name = entity.name
+                                , info = entity.tamed and S("tamed") or nil
+                                , prio = (entity.type and entity.type == "monster") and 1 or 3
+                                }
+                            if entity.tamed and entity.name then
+                                local key = entity.name .. ((entity.child) and "(child)" or "")
+                                local t = tamed_mobs[key] or { count = 0, timer = 0, obj = nil }
+
+                                local timer = (entity.horny and entity.hornytimer)
+                                    -- see 'HORNY_TIME' and 'HORNY_AGAIN_TIME' in mobs_redo/api.lua
+                                    and (times.now.time + 30 + 60*5 - entity.hornytimer)
+                                    or  (not entity.horny and entity.child)
+                                    -- see 'CHILD_GROW_TIME' in mobs_redo/api.lua
+                                    and (times.now.time + 60*20 - entity.hornytimer)
+                                    or 0
+
+                                tamed_mobs[key] =
+                                    { count = t.count + 1
+                                    , obj   = ((timer > t.timer) and obj or t.obj)
+                                    , timer = math.max(t.timer, timer)
+                                    }
+                            end
+                        elseif entity.nodename then
+                            object =
+                                { name = entity.nodename
+                                , prio = 5
                                 }
                         end
                     end
+                    if hud.stand_loop == 2 then
+                        debug("object ".. i
+                            .. " type="  .. (object and object.type or "")
+                            .. " name="  .. (object and object.name or "")
+                            )
+                        debug(" dbg:" .. dbg)
+                        --debug(" obj:" .. dump(obj))
+                        debug(" entity:" .. dump(entity))
+                    end
                 end
                 if object or dbg ~= "" then
-                    objects[#objects +1] = object or {}
+                    objects[#objects +1] = object or { prio = 9 }
                     objects[#objects].d = math.floor(vector.distance(hud.pos, obj_pos))
                     objects[#objects].pos = obj_pos
                     objects[#objects].dbg = dbg
                 end
+            end
+        end
+
+        for k,v in pairs(tamed_mobs) do
+            if not hud.tamed_mobs[k]
+                or hud.tamed_mobs[k].timer < v.timer
+                or hud.tamed_mobs[k].count < v.count
+                then hud.tamed_mobs[k] = v
             end
         end
 
@@ -858,7 +908,7 @@ else
         local function spairs(tbl, order_func)
             local ptrs = {}
             for p in pairs(tbl) do ptrs[#ptrs +1] = p end
-            table.sort(ptrs, function(a, b) return order_func(a, b) end)
+            table.sort(ptrs, order_func and function(a, b) return order_func(a, b) end)
             local i = 0
             return function()
                 i = i +1
@@ -868,22 +918,27 @@ else
             end
         end
 
+        local last_prio
         for _, object in spairs(objects
-            , function(a, b) return objects[b].d < objects[a].d end
+            , function(a, b)
+                return (objects[b].prio < objects[a].prio)
+                    or (objects[b].prio == objects[a].prio and objects[b].d < objects[a].d)
+            end
             ) do
-            local info = (object.type) and (object.type or "?")
-                    .. ": " .. (object.name or "?")
+            local info = (object.name or "?")
                     .. (object.info and "(" .. object.info .. ")" or "")
 
+            if not last_prio or last_prio ~= object.prio then
+                infos[#infos +1] = (object.type or "unknown") .. ":"
+                last_prio = object.prio
+            end
+
             infos[#infos +1] = yaw_delta_info(hud.pos, object.pos, y, 1
---                , object.dbg .. (info or "") .. " " .. (object.d or "?") .. S("m away")
                 , (object.d or "?") .. S("m away") .. " " .. (info or "") .. object.dbg
                 )
         end
-            --infos[#infos +1] = dbg .. (info or "")
 
         local msg = table.concat(infos, "\n")
-        if hud.stand_loop == 1 then print(msg) end -- FIXME:
 
         return msg
     end
@@ -944,7 +999,6 @@ local function do_huds(player)
     local msg = table.concat(infos, "\n") or ""
     hud_show(hud.standing, player, string.gsub(msg,"\n+$", ""))
 
-    if not moreinfo._experimental then return end
 --[[
     if hud.speed ~= 0 and hud.last.speed ~= 0 then
         hud_show(hud.pointed, player, "")
@@ -1227,6 +1281,7 @@ elseif INIT == "game" then
         , "position"  , S("information about the current position")
         , "game"      , S("game information (like time)")
         , "players"   , S("information about connected players")
+        , "breeding"  , S("breeding and growing timers")
         , ''
         , "long_text" , S("show long texts")
         , ''
@@ -1238,7 +1293,7 @@ elseif INIT == "game" then
         {   { prefix = "display_"
             , opts =
                 { "environ", "pointed"
-                , "waypoint", "position", "game", "players_long", "players"
+                , "waypoint", "position", "game", "players_long", "players", "breeding"
                 }
             , suffix = "_info"
             }
@@ -1360,7 +1415,7 @@ elseif INIT == "game" then
                         end)
                     end)
                     return true, table.concat(texts, "\n")
-                elseif opt == "debug" then -- FIXME: devel
+                elseif opt == "debug" and minetest.check_player_privs(player, { server = true }) then
                     moreinfo._debug = (val == 1)
                     return true
                 elseif val ~= nil and opt ~= nil then

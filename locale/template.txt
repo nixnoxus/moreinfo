@@ -44,6 +44,10 @@ rtt @1 @2 @3=
 jitter @1 @2 @3=
 connected since @1=
 
+breeding:=
+tamed=
+feeding in @1=
+
 # chat messages
 
 Welcome to @1 @2 uptime: @3 game day: @4=
@@ -64,6 +68,7 @@ pointed block=
 information about the current position=
 game information (like time)=
 information about connected players=
+breeding and growing timers=
 show long texts=
 all of the above=
 Shows the version of @1 and your current settings.=

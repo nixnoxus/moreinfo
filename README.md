@@ -27,6 +27,7 @@ MoreInfo mod for [Minetest](http://minetest.net/) 5.4.1 or newer
 - shows game infomation
   - game time and a countdown to the next morning or evening
   - player names and their connection time
+- shows timers for breeding and growing
 
 All features are enabled by default.
 - The server admin can change the defaults in `minetest.conf`. For example:
@@ -45,6 +46,7 @@ moreinfo.display_waypoint_info = false
 moreinfo.display_position_info = false
 moreinfo.display_game_info = false
 moreinfo.display_players_info = false
+moreinfo.display_breeding_info = false
 
 moreinfo.waypoint_bed = false
 moreinfo.waypoint_bones = false
@@ -52,7 +54,7 @@ moreinfo.waypoint_bones = false
 
 - The player can change his own settings with chat commands. The format is as follows:
 ```
-/moreinfo { + | - }{ any | environ | pointed | waypoint | position | game | players | bed | bones | long_text }
+/moreinfo { + | - }{ any | environ | pointed | waypoint | position | game | players | breeding | bed | bones | long_text }
 ```
 - Examples
 ```
@@ -68,6 +70,7 @@ moreinfo.waypoint_bones = false
 /moreinfo +position
 /moreinfo +game
 /moreinfo +players
+/moreinfo +breeding
 
 /moreinfo +long_text
 ```

@@ -41,6 +41,10 @@ rtt @1 @2 @3=RTT @1 @2
 jitter @1 @2 @3=Jitter @1 @2
 connected since @1=verbunden seit @1
 
+breeding:=Zucht:
+tamed=gezähmt
+feeding in @1=Fütterung in @1
+
 # chat messages
 
 Welcome to @1 @2 uptime: @3 game day: @4=Willkommen zu @1 @2 Uptime: @3 Spieltag: @4
@@ -59,6 +63,7 @@ targeted block=angeziehlter Block
 information about the current position=Informationen zur aktuellen Position
 game information (like time)=Spielinformation (wie Uhrzeit)
 information about connected players=Informationen über verbundene Spieler
+breeding and growing timers=Timer für Zucht und Wachstum
 show long texts=Lange Texte anzeigen
 all of the above=Alles oben genannte
 Shows the version of @1 and your current settings.=Zeigt die Version von @1 und Ihre aktuellen Einstellungen.
