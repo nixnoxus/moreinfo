@@ -10,4 +10,5 @@ read_globals =
     { "INIT"
     , "vector"
     , "dump"
+    , "cmi"
     }

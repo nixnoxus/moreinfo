@@ -2,6 +2,7 @@
 
 local modname = minetest.get_current_modname()
 local modpath = minetest.get_modpath(modname)
+local have_cmi = nil --minetest.global_exists("cmi")
 
 local function get_setting_int(key, default)
     return (INIT == "game") and tonumber(minetest.settings:get(key)) or default
@@ -769,18 +770,28 @@ local function get_infos(player, hud)
         end
     end)
 
-    if enabled("display_breeding_info", player) and hud.tamed_mobs and #hud.tamed_mobs then
+    if enabled("display_breeding_info", player) and hud.tamed_mobs then
         infos[#infos +1] = S("breeding:")
         for k, v in pairs(hud.tamed_mobs) do
-            local timer =(times.now.time - v.timer)
-            -- flag is '*' when unloaded
-            local flag = v.obj and v.obj:get_pos() and "" or "*"
+            local loaded = v.obj and v.obj:get_pos()
+            v.t_diff = loaded and (times.now.time - v.timer) or v.t_diff or 0
 
             infos[#infos +1] = " " .. k
                 .. ": " .. v.count
-                .. ((timer < 0 ) and (" " .. S(e and "feeding in @1" or "@1", human_s(timer))) or "")
-                .. flag
-        end
+                .. ((v.t_diff < 0) and (" " .. S(e and "feeding in @1" or "@1", human_s(v.t_diff))) or "")
+                .. ((not loaded) and "*" or "")
+                .. (add_debug_or_nil("id:" .. (v.id or '-')
+                    .. " t:" .. (v.timer ~= 0 and human_s(times.now.time - v.timer) or "-")) or "")
+
+            -- remove unloaded mobs after 10s from breeding list
+            if not loaded then
+                if not v.keep then
+                    v.keep = times.now.time + 10
+                elseif v.keep < times.now.time then
+                    hud.tamed_mobs[k] = nil
+                end
+            end
+         end
     end
 
     return infos
@@ -811,6 +822,8 @@ else
 
         local objects = {}
         local tamed_mobs = {}
+--        hud.tamed_mobs = {} -- TODO: remove mobs out of range?
+
         for i, obj in ipairs(objs) do
             if not obj then
                 infos[#infos +1] = add_debug_or_nil("nix obj")
@@ -845,14 +858,18 @@ else
                                 , prio = 4
                                 }
                         elseif entity._cmi_is_mob then
-                            object =
-                                { type = entity.type or "mob"
-                                , name = entity.name
-                                , info = entity.tamed and S("tamed") or nil
-                                , prio = (entity.type and entity.type == "monster") and 1 or 3
-                                }
+                            -- TODO: make hiding of tamed mobs configurable?
+                            if not entity.tamed then
+                                object =
+                                    { type = entity.type or "mob"
+                                    , name = entity.name
+                                    , info = entity.tamed and S("tamed") or nil
+                                    , prio = (entity.type and entity.type == "monster") and 1 or 3
+                                    }
+                            end
                             if entity.tamed and entity.name then
-                                local key = entity.name .. ((entity.child) and "(child)" or "")
+                                local key = entity.nametag
+                                    or entity.name .. ((entity.child and "(child)") or "")
                                 local t = tamed_mobs[key] or { count = 0, timer = 0, obj = nil }
 
                                 local timer = (entity.horny and entity.hornytimer)
@@ -863,9 +880,17 @@ else
                                     and (times.now.time + 60*20 - entity.hornytimer)
                                     or 0
 
+                                -- remove mobs with expired timers from list
+                                local id = have_cmi and cmi.get_uid(obj)
+                                if timer == 0 and id then
+                                    for k, v in pairs(hud.tamed_mobs) do
+                                        if v.id == id then hud.tamed_mobs[k] = nil end
+                                    end
+                                end
+
                                 tamed_mobs[key] =
                                     { count = t.count + 1
-                                    , obj   = ((timer > t.timer) and obj or t.obj)
+                                    , obj   = (((t.timer == 0) or (t.timer < t.timer)) and obj or t.obj)
                                     , timer = math.max(t.timer, timer)
                                     }
                             end
@@ -899,7 +924,9 @@ else
             if not hud.tamed_mobs[k]
                 or hud.tamed_mobs[k].timer < v.timer
                 or hud.tamed_mobs[k].count < v.count
-                then hud.tamed_mobs[k] = v
+                then
+                v.id = have_cmi and cmi.get_uid(v.obj)
+                hud.tamed_mobs[k] = v
             end
         end
 
@@ -945,11 +972,12 @@ else
 
     get_facing_info = function(player, hud)
         local f = moreinfo.facing(player)
+        --debug("facing: " .. dump(f))
         local pos = f and f.intersection_point
 
         if pos then
             local n = minetest.get_node_or_nil(pos)
-            if n and n.name and n.name == "air" then
+            if n and n.name and n.name == "air" and f.under then
                 pos = f.under
                 n = minetest.get_node_or_nil(pos)
             end
