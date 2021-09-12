@@ -2,7 +2,6 @@
 
 local modname = minetest.get_current_modname()
 local modpath = minetest.get_modpath(modname)
-local have_cmi = nil --minetest.global_exists("cmi")
 
 local function get_setting_int(key, default)
     return (INIT == "game") and tonumber(minetest.settings:get(key)) or default
@@ -136,6 +135,7 @@ local function vector2strf(fmt, v)
 end
 
 local function vector2str_1(v) return vector2strf("%.1f", v) end
+local function vector2str_i(v) return vector2strf("%i", v) end
 
 local function try_keys(list, ...)
     local ret = ""
@@ -561,7 +561,7 @@ local function hud_init()
                 , number = moreinfo.text_color:gsub('#', '0x')
                 }
             }
-        , tamed_mobs = {}
+        , farms = {}
         }
 
     -- FIXME: ssm vs. csm
@@ -659,6 +659,40 @@ local function get_game_info(player, e)
     return add_debug(times_info(), str)
 end
 
+local function get_farm_info(player, e, hud)
+    local str = "" --S("breeding:")
+
+    for _, farm in ipairs(hud.farms) do
+        local infos = {}
+        for k, m in pairs(farm.mobs) do
+            local loaded = m.obj and m.obj:get_pos()
+            m.t_diff = loaded and (times.now.time - m.timer) or m.t_diff or 0
+            if not loaded and not m.keep then
+                m.keep = times.now.time + 60
+            end
+
+            infos[#infos +1] = " " .. k
+                .. ": " .. m.count
+                .. ((m.t_diff < 0) and (" " .. S(e and "feeding in @1" or "@1", human_s(m.t_diff))) or "")
+                .. ((not loaded) and string.rep("*", 1 + (m.keep - times.now.time) / (60 / 5)) or "")
+                -- .. " " .. math.floor(vector.distance(hud.pos, m.pos)) .. S("m away")
+                .. (add_debug_or_nil("id:" .. (m.id or '-')
+                    .. " t:" .. (m.timer ~= 0 and human_s(times.now.time - m.timer) or "-")) or "")
+
+            -- remove unloaded mobs after 60s from breeding list
+            if m.keep and m.keep < times.now.time then
+                farm.mobs[k] = nil
+            end
+        end
+        if #infos > 0 then
+            str = str .. S("farm at: @1", vector2str_i(farm.pos))
+                .. " " .. math.floor(vector.distance(hud.pos, farm.pos)) .. S("m away")
+                .. "\n" .. table.concat(infos, "\n") .. "\n"
+        end
+    end
+    return str
+end
+
 local function hud_update_player(player)
     local player_name = get_player_name(player)
     local hud = huds[player_name]
@@ -709,19 +743,24 @@ end
 local get_funcs =
     { players_info = get_players_info
     , game_info    = get_game_info
+--    , farm_info    = get_farm_info
     , players_long_info = function(player, e) return get_players_info(player, e, true) end
     }
 
 local function get_infos(player, hud)
     local infos = {}
 
+    local e = enabled("enable_long_text", player)
+
+    if enabled("display_breeding_info", player) then
+        infos[#infos +1] = get_farm_info(player, e, hud)
+    end
+
     if enabled("display_waypoint_info", player) then
         local player_name = get_player_name(player)
         infos[#infos +1] = wp_info_all(player, player_name, hud.pos)
         infos[#infos +1] = moreinfo._debug and "{next_wp_bones: " .. next_wp_bones(player_name)  .. "}\n" or nil
     end
-
-    local e = enabled("enable_long_text", player)
 
     if enabled("display_position_info", player) then
         local msg = S("pos: @1", vector2str(hud.rpos)) .. "\n"
@@ -769,30 +808,6 @@ local function get_infos(player, hud)
             infos[#infos +1] = get_funcs[opt](player, e) or nil
         end
     end)
-
-    if enabled("display_breeding_info", player) and hud.tamed_mobs then
-        infos[#infos +1] = S("breeding:")
-        for k, v in pairs(hud.tamed_mobs) do
-            local loaded = v.obj and v.obj:get_pos()
-            v.t_diff = loaded and (times.now.time - v.timer) or v.t_diff or 0
-
-            infos[#infos +1] = " " .. k
-                .. ": " .. v.count
-                .. ((v.t_diff < 0) and (" " .. S(e and "feeding in @1" or "@1", human_s(v.t_diff))) or "")
-                .. ((not loaded) and "*" or "")
-                .. (add_debug_or_nil("id:" .. (v.id or '-')
-                    .. " t:" .. (v.timer ~= 0 and human_s(times.now.time - v.timer) or "-")) or "")
-
-            -- remove unloaded mobs after 10s from breeding list
-            if not loaded then
-                if not v.keep then
-                    v.keep = times.now.time + 10
-                elseif v.keep < times.now.time then
-                    hud.tamed_mobs[k] = nil
-                end
-            end
-         end
-    end
 
     return infos
 end
@@ -870,7 +885,7 @@ else
                             if entity.tamed and entity.name then
                                 local key = entity.nametag
                                     or entity.name .. ((entity.child and "(child)") or "")
-                                local t = tamed_mobs[key] or { count = 0, timer = 0, obj = nil }
+                                local t = tamed_mobs[key] or { count = 0, timer = 0, obj = nil, pos = nil }
 
                                 local timer = (entity.horny and entity.hornytimer)
                                     -- see 'HORNY_TIME' and 'HORNY_AGAIN_TIME' in mobs_redo/api.lua
@@ -880,17 +895,10 @@ else
                                     and (times.now.time + 60*20 - entity.hornytimer)
                                     or 0
 
-                                -- remove mobs with expired timers from list
-                                local id = have_cmi and cmi.get_uid(obj)
-                                if timer == 0 and id then
-                                    for k, v in pairs(hud.tamed_mobs) do
-                                        if v.id == id then hud.tamed_mobs[k] = nil end
-                                    end
-                                end
-
                                 tamed_mobs[key] =
                                     { count = t.count + 1
                                     , obj   = (((t.timer == 0) or (t.timer < t.timer)) and obj or t.obj)
+                                    , pos   = (((t.timer == 0) or (t.timer < t.timer)) and obj_pos or t.pos)
                                     , timer = math.max(t.timer, timer)
                                     }
                             end
@@ -920,13 +928,29 @@ else
             end
         end
 
+        local dia = moreinfo.environ_limit * 2
         for k,v in pairs(tamed_mobs) do
-            if not hud.tamed_mobs[k]
-                or hud.tamed_mobs[k].timer < v.timer
-                or hud.tamed_mobs[k].count < v.count
+            local farm_rpos = vector.apply(v.pos, function(a) return math.floor(a / dia) * dia end)
+            local farm_key = vector2str(farm_rpos) --vector.to_string(farm_pos)
+
+            local f = 1
+            while f <= #hud.farms and hud.farms[f].key ~= farm_key do f = f +1 end
+
+            if not hud.farms[f] then
+                hud.farms[f] =
+                    { key = farm_key
+                    , pos = v.pos
+                    , mobs = {}
+                    }
+            end
+            local mobs = hud.farms[f].mobs
+
+            if not mobs[k]
+                or mobs[k].timer < v.timer
+                or mobs[k].count < v.count
+                or vector.distance(hud.pos, hud.farms[f].pos) < moreinfo.environ_limit / 2
                 then
-                v.id = have_cmi and cmi.get_uid(v.obj)
-                hud.tamed_mobs[k] = v
+                mobs[k] = v
             end
         end
 

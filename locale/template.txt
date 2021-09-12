@@ -6,6 +6,10 @@ evening: @1=
 morning: @1=
 speed: @1 step: @2=
 
+# farms
+
+farm at: @1=
+
 # waypoints
 
 spawn (bed)=
