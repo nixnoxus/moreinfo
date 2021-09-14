@@ -179,6 +179,19 @@ local function human_s(s)
     return sign .. str
 end
 
+local function spairs(tbl, order_func)
+    local ptrs = {}
+    for p in pairs(tbl) do ptrs[#ptrs +1] = p end
+    table.sort(ptrs, order_func and function(a, b) return order_func(a, b) end)
+    local i = 0
+    return function()
+        i = i +1
+        if ptrs[i] then
+            return ptrs[i], tbl[ptrs[i]]
+        end
+    end
+end
+
 local function yaw_to(from_pos, to_pos)
     if not from_pos or not to_pos then return end
     local yaw = math.atan((to_pos.z - from_pos.z) / (to_pos.x - from_pos.x)) + math.pi/2
@@ -664,7 +677,7 @@ local function get_farm_info(player, e, hud)
 
     for _, farm in ipairs(hud.farms) do
         local infos = {}
-        for k, m in pairs(farm.mobs) do
+        for k, m in spairs(farm.mobs, function(a, b) return (a < b) end) do
             local loaded = m.obj and m.obj:get_pos()
             m.t_diff = loaded and (times.now.time - m.timer) or m.t_diff or 0
             if not loaded and not m.keep then
@@ -839,6 +852,16 @@ else
         local tamed_mobs = {}
 --        hud.tamed_mobs = {} -- TODO: remove mobs out of range?
 
+        local prios =
+            { monster = 1
+            , player  = 2
+            , npc     = 3
+            , mob     = 4
+            , animal  = 5
+            , item    = 6
+            , other   = 7
+            }
+
         for i, obj in ipairs(objs) do
             if not obj then
                 infos[#infos +1] = add_debug_or_nil("nix obj")
@@ -852,7 +875,7 @@ else
                     if obj == player then
                         dbg = add_debug("player: self", dbg)
                     else
-                        object = { type = "player", name = obj:get_player_name(), prio = 2 }
+                        object = { type = "player", name = obj:get_player_name(), prio = prios.player }
                     end
                 else
                     local entity = obj:get_luaentity()
@@ -870,16 +893,17 @@ else
                                 { type = "item"
                                 , name = entity.itemstring
                                 , info = entity.age and human_s(entity.age - 900)
-                                , prio = 4
+                                , prio = prios.item
                                 }
                         elseif entity._cmi_is_mob then
                             -- TODO: make hiding of tamed mobs configurable?
                             if not entity.tamed then
+                                local t = entity.type or "mob"
                                 object =
-                                    { type = entity.type or "mob"
+                                    { type = t
                                     , name = entity.name
                                     , info = entity.tamed and S("tamed") or nil
-                                    , prio = (entity.type and entity.type == "monster") and 1 or 3
+                                    , prio = prios[t] or prios.mob
                                     }
                             end
                             if entity.tamed and entity.name then
@@ -903,10 +927,12 @@ else
                                     }
                             end
                         elseif entity.nodename then
-                            object =
-                                { name = entity.nodename
-                                , prio = 5
-                                }
+                            if string.find("^itemframes:", entity.nodename) ~= nil then
+                                object =
+                                    { name = entity.nodename
+                                    , prio = prios.other
+                                    }
+                            end
                         end
                     end
                     if hud.stand_loop == 2 then
@@ -955,19 +981,6 @@ else
         end
 
         local y = player:get_look_horizontal()
-
-        local function spairs(tbl, order_func)
-            local ptrs = {}
-            for p in pairs(tbl) do ptrs[#ptrs +1] = p end
-            table.sort(ptrs, order_func and function(a, b) return order_func(a, b) end)
-            local i = 0
-            return function()
-                i = i +1
-                if ptrs[i] then
-                    return ptrs[i], tbl[ptrs[i]]
-                end
-            end
-        end
 
         local last_prio
         for _, object in spairs(objects
