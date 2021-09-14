@@ -41,8 +41,8 @@ biome: @1 T: @2 H: @3=Biom: @1 T: @2 H: @3
 biome: @1 heat: @2 humidity: @3=Biom: @1 Wärme: @2 Feuchtigkeit: @3
 
 players: @1=Spieler: @1
-rtt @1 @2 @3=RTT @1 @2
-jitter @1 @2 @3=Jitter @1 @2
+rtt @1 @2 @3=RTT @1 @2 @3
+jitter @1 @2 @3=Jitter @1 @2 @3
 connected since @1=verbunden seit @1
 
 breeding:=Zucht:
