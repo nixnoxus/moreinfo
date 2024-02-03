@@ -1,0 +1,67 @@
+# textdomain: moreinfo
+# vim: syntax=gettext
+
+day: @1=日数: @1
+evening: @1=日没: @1
+morning: @1=夜明け: @1
+speed: @1 step: @2=速度: @1  ステップ: @2
+
+# waypoints
+
+spawn (bed)=スポーン(ベッド)
+bones(@1/@2)@3=骨(@1/@2) @3
+m=m
+m away=m 先
+[evening in @1]=[日没まで @1]
+[evening since @1]=[日没から @1]
+
+[shared in @1]=[共有してから @1]
+(shared in @1)=(共有してから @1)
+
+time: @1=プレイ時間: @1
+evening in @1=日没まで @1
+morning in @1=夜明けまで @1
+
+# info
+
+pos: @1=位置: @1
+map block: @1 offset: @2=マップブロック: @1  オフセット: @2
+
+speed: @1 avg: @2 m/s=速度: @1  平均: @2 m/秒
+stand: @1 loop: @2=
+
+light: @1 (@2..@3)=明るさ: @1 (@2..@3)
+light: @1 min: @2 max: @3=明るさ: @1　最小: @2　最大: @3
+
+biome: @1 T: @2 H: @3=バイオーム: @1　T: @2　H: @3
+biome: @1 heat: @2 humidity: @3=バイオーム: @1  暑さ: @2  湿度: @3
+
+players: @1=人数: @1
+rtt @1 @2 @3=rtt @1 @2 @3
+jitter @1 @2 @3=ジッター @1 @2 @3
+connected since @1=接続経過時間 @1
+
+# chat messages
+
+Welcome to @1 @2 uptime: @3 game day: @4=@1 @2へようこそ  稼働時間: @3  ゲーム日数: @4日
+@1 was killed by @2=@1は@2によって殺された
+@1 was died by @2=@1は@2によって死んだ
+You died=死んでしまった
+@1 at @2.=@2で@1。
+
+# chat commands
+
+Welcome to @1 @2 uptime: @3 game day: @4=@1 @2へようこそ  稼働時間: @3  ゲーム日数: @4日
+waypoint to your last used bed=最後に使ったベッドの地点表示
+waypoints to your last bones=最後に骨になった地点表示
+waypoint direction indicator and info=地点の方向と情報の表示
+information about the current position=現在地情報の表示
+game information (like time)=時間などゲーム内情報の表示
+information about connected players=接続プレイヤーについての情報表示
+show long texts=長文での情報表示
+all of the above=上のすべての情報
+Shows the version of @1 and your current settings.=@1のバージョンと現在の設定を表示します。
+To change your settings, enter the following commands:=設定を変更するには以下のコマンドを入力します
+'/@1 -@2'@3 disables @4='/@1 -@2'@3 @4を無効化
+player not set=プレイヤーが設定されていません
+command error=コマンドエラー
